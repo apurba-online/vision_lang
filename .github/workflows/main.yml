@@ -1,0 +1,30 @@
+name: Automated Unzip Workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.PUSH_TOKEN }}
+
+      - name: List Files in Repository Root Before Unzipping
+        run: ls -al
+
+      - name: Unzip VLM.zip to Root Folder
+        run: unzip VLM.zip -d .
+
+      - name: List Files in Repository Root After Unzipping
+        run: ls -al
+
+      - name: Commit unzipped files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .
+          git commit -m "Unzip VLM.zip" || echo "No changes to commit"
+          git push
