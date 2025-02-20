@@ -4,7 +4,7 @@ import Webcam from 'react-webcam';
 import { 
   Upload, Camera, Play, Pause, MessageSquare, Loader2, 
   Menu, X, Video, Sun, Moon, Upload as UploadIcon,
-  Settings, Info, Github
+  Settings, Info, Github, FlipHorizontal
 } from 'lucide-react';
 import { loadModel, analyzeVideo, analyzeFrame, type PersonAnnotation } from './utils/model';
 
@@ -23,6 +23,8 @@ function App() {
   const [error, setError] = useState<string>('');
   const [isModelLoaded, setIsModelLoaded] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [isMobile, setIsMobile] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window !== 'undefined') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -35,10 +37,26 @@ function App() {
   const lastAnalysisTimeRef = useRef<number>(0);
   const analysisUpdateIntervalRef = useRef<NodeJS.Timeout>();
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const webcamRef = React.useRef<Webcam>(null);
+
+  useEffect(() => {
+    // Check if device is mobile
+    const checkMobile = () => {
+      setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
   }, [theme]);
+
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  };
 
   useEffect(() => {
     loadModel().then(() => {
@@ -102,8 +120,6 @@ function App() {
       setIsLoading(false);
     }
   };
-
-  const webcamRef = React.useRef<Webcam>(null);
 
   const analyzeWebcamFrame = async () => {
     if (!webcamRef.current?.video || !isAnalyzingRef.current) return;
@@ -319,17 +335,31 @@ function App() {
                           audio={false}
                           className="w-full h-full object-contain rounded-lg"
                           screenshotFormat="image/jpeg"
+                          videoConstraints={{
+                            facingMode,
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                          }}
                         />
-                        <button
-                          onClick={toggleRecording}
-                          className={`absolute bottom-4 right-4 p-2 md:p-3 rounded-full transition ${
-                            isRecording 
-                              ? 'bg-red-600 hover:bg-red-700' 
-                              : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
-                          } text-white`}
-                        >
-                          {isRecording ? <Pause size={24} /> : <Play size={24} />}
-                        </button>
+                        <div className="absolute bottom-4 right-4 flex gap-2">
+                          <button
+                            onClick={toggleCamera}
+                            className="p-2 md:p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition backdrop-blur-sm"
+                            title="Switch Camera"
+                          >
+                            <FlipHorizontal size={24} />
+                          </button>
+                          <button
+                            onClick={toggleRecording}
+                            className={`p-2 md:p-3 rounded-full transition ${
+                              isRecording 
+                                ? 'bg-red-600 hover:bg-red-700' 
+                                : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
+                            } text-white`}
+                          >
+                            {isRecording ? <Pause size={24} /> : <Play size={24} />}
+                          </button>
+                        </div>
                       </div>
                     )}
 
