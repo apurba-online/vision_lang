@@ -4,13 +4,20 @@ import Webcam from 'react-webcam';
 import { 
   Upload, Camera, Play, Pause, MessageSquare, Loader2, 
   Menu, X, Video, Sun, Moon, Upload as UploadIcon,
-  Settings, Info, Github, FlipHorizontal
+  Settings, Info, Github, FlipHorizontal, Bug
 } from 'lucide-react';
 import { loadModel, analyzeVideo, analyzeFrame, type PersonAnnotation } from './utils/model';
 
 type AnalysisMode = 'upload' | 'camera';
 type VideoSource = string | null;
 type Theme = 'light' | 'dark';
+
+type DebugInfo = {
+  hasFrame: boolean;
+  frameSize: number;
+  messageCount: number;
+  lastUpdate: string;
+};
 
 function App() {
   const [mode, setMode] = useState<AnalysisMode>('camera');
@@ -25,6 +32,13 @@ function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isMobile, setIsMobile] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<DebugInfo>({
+    hasFrame: false,
+    frameSize: 0,
+    messageCount: 0,
+    lastUpdate: new Date().toISOString()
+  });
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window !== 'undefined') {
       return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -134,6 +148,15 @@ function App() {
       const result = await analyzeFrame(webcamRef.current.video);
       setAnalysis(result.commentary);
       setAnnotations(result.annotations || []);
+      
+      // Update debug info
+      setDebugInfo({
+        hasFrame: !!result.frame,
+        frameSize: result.frame?.length || 0,
+        messageCount: 2, // System message + User message
+        lastUpdate: new Date().toISOString()
+      });
+      
       lastAnalysisTimeRef.current = currentTime;
     } catch (error) {
       console.error('Analysis error:', error);
@@ -172,6 +195,19 @@ function App() {
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  const renderAnnotationLabel = (annotation: PersonAnnotation) => {
+    if (annotation.class) {
+      return annotation.class;
+    }
+    
+    const details = [];
+    if (annotation.gender) details.push(annotation.gender);
+    if (annotation.ageRange) details.push(annotation.ageRange);
+    if (annotation.expression) details.push(annotation.expression);
+    
+    return details.join(' • ');
   };
 
   if (!isModelLoaded) {
@@ -277,6 +313,17 @@ function App() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`p-2 rounded-lg transition ${
+                showDebug 
+                  ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400' 
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+              title="Toggle Debug Info"
+            >
+              <Bug size={20} />
+            </button>
+            <button
               onClick={toggleTheme}
               className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
             >
@@ -298,6 +345,19 @@ function App() {
           {error && (
             <div className="mb-4 p-4 bg-red-100 dark:bg-red-500/20 border border-red-200 dark:border-red-500 rounded-lg text-red-800 dark:text-red-200 text-sm md:text-base">
               {error}
+            </div>
+          )}
+
+          {/* Debug Panel */}
+          {showDebug && (
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <h3 className="text-sm font-semibold mb-2 text-blue-800 dark:text-blue-300">Debug Information</h3>
+              <div className="space-y-1 text-xs text-blue-700 dark:text-blue-400">
+                <p>Frame Captured: {debugInfo.hasFrame ? '✅' : '❌'}</p>
+                <p>Frame Size: {(debugInfo.frameSize / 1024).toFixed(2)} KB</p>
+                <p>Messages to GPT: {debugInfo.messageCount}</p>
+                <p>Last Update: {new Date(debugInfo.lastUpdate).toLocaleTimeString()}</p>
+              </div>
             </div>
           )}
 
@@ -386,11 +446,7 @@ function App() {
                           }}
                         >
                           <div className="absolute -top-6 md:-top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-1.5 md:px-2 py-0.5 md:py-1 rounded text-xs whitespace-nowrap">
-                            {annotation.class ? (
-                              annotation.class
-                            ) : (
-                              `${annotation.gender} • ${annotation.ageRange} • ${annotation.expression}`
-                            )}
+                            {renderAnnotationLabel(annotation)}
                           </div>
                         </div>
                       );
