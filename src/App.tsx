@@ -431,11 +431,11 @@ function App() {
                     </div>
                   ) : (
                     <div className="h-full relative rounded-xl overflow-hidden">
-                      <div className={`${isMobile ? 'aspect-[16/9]' : ''} h-full`}>
+                      <div className={`${isMobile ? 'aspect-[1/1]' : ''} h-full`}>
                         <Webcam
                           ref={webcamRef}
                           audio={false}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-fit"
                           screenshotFormat="image/jpeg"
                           videoConstraints={{
                             facingMode,
