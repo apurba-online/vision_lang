@@ -431,11 +431,11 @@ function App() {
                     </div>
                   ) : (
                     <div className="h-full relative rounded-xl overflow-hidden">
-                      <div className={`${isMobile ? 'h-full aspect-[4/3] object-cover' : ''} h-full`}>
+                      <div className={`${isMobile ? 'h-full aspect-[9/16] object-cover' : ''} h-full`}>
                         <Webcam
                           ref={webcamRef}
                           audio={false}
-                          className="w-full h-full object-cover"
+                          className="w-full h-full object-fit"
                           screenshotFormat="image/jpeg"
                           videoConstraints={{
                             facingMode,
@@ -501,7 +501,7 @@ function App() {
             </div>
 
             {/* Analysis Section */}
-            <div className={`lg:col-span-2 ${isMobile ? 'h-[30vh]' : 'h-[calc(100vh-8rem)]'}`}>
+            <div className={`lg:col-span-2 ${isMobile ? 'h-[50vh]' : 'h-[calc(100vh-8rem)]'}`}>
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800 flex flex-col">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 flex-shrink-0">
                   <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
