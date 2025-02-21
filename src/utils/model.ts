@@ -29,6 +29,22 @@ export async function loadModel() {
   }
 }
 
+function captureFrame(videoElement: HTMLVideoElement): string | null {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = videoElement.videoWidth;
+    canvas.height = videoElement.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    
+    ctx.drawImage(videoElement, 0, 0);
+    return canvas.toDataURL('image/jpeg', 0.5); // Reduced quality for better performance
+  } catch (error) {
+    console.error('Error capturing frame:', error);
+    return null;
+  }
+}
+
 function estimateAgeRange(height: number): string {
   if (height < window.innerHeight * 0.15) return '20-30';
   if (height < window.innerHeight * 0.25) return '30-40';
@@ -68,16 +84,9 @@ function detectMovement(object: string, bbox: number[]): string {
 
 function createSquareFaceBox(bbox: number[]): number[] {
   const [x, y, width, height] = bbox;
-  
-  // Estimate face position (approximately 1/6 from the top of body)
-  const faceHeight = height * 0.2; // Face is about 20% of body height
+  const faceHeight = height * 0.2;
   const squareSize = faceHeight;
-  
-  // Position the box 1/8 down from the top of the body
-  // This helps center on the face rather than the hair
-  const faceY = y + height * 0.125; // Move down 12.5% of body height
-  
-  // Center the face box horizontally
+  const faceY = y + height * 0.125;
   const faceX = x + (width - squareSize) / 2;
   
   return [faceX, faceY, squareSize, squareSize];
@@ -88,9 +97,8 @@ function adjustBoundingBox(bbox: number[], isPerson: boolean): number[] {
     return createSquareFaceBox(bbox);
   }
   
-  // For objects, make the box slightly tighter
   const [x, y, width, height] = bbox;
-  const padding = 0.1; // 10% padding
+  const padding = 0.1;
   const adjustedWidth = width * (1 - padding);
   const adjustedHeight = height * (1 - padding);
   const adjustedX = x + (width - adjustedWidth) / 2;
@@ -144,6 +152,8 @@ function analyzePersonDetails(bbox: number[]): {
   annotation: PersonAnnotation;
 } {
   const adjustedBbox = adjustBoundingBox(bbox, true);
+  const ageRange = estimateAgeRange(adjustedBbox[3]);
+  const expression = estimateExpression(adjustedBbox);
   
   return {
     pose: detectPose(bbox),
@@ -153,8 +163,8 @@ function analyzePersonDetails(bbox: number[]): {
     annotation: {
       bbox: adjustedBbox,
       gender: 'Person',
-      ageRange: estimateAgeRange(adjustedBbox[3]),
-      expression: estimateExpression(adjustedBbox),
+      ageRange,
+      expression,
       confidence: 0.95
     }
   };
@@ -189,10 +199,11 @@ export async function analyzeFrame(videoElement: HTMLVideoElement) {
     }
 
     const predictions = await model.detect(videoElement);
+    const frameData = captureFrame(videoElement);
     
     const results = predictions.map(prediction => {
       const adjustedBbox = prediction.class === 'person' 
-        ? prediction.bbox // Person bbox will be adjusted in analyzePersonDetails
+        ? prediction.bbox
         : adjustBoundingBox(prediction.bbox, false);
         
       return {
@@ -206,11 +217,18 @@ export async function analyzeFrame(videoElement: HTMLVideoElement) {
     const sceneData = {
       people: results
         .filter(r => r.class === 'person' && r.details)
-        .map(p => p.details!)
+        .map(p => ({
+          ...p.details!,
+          annotation: {
+            ageRange: p.details!.annotation.ageRange,
+            expression: p.details!.annotation.expression
+          }
+        }))
         .filter(Boolean),
       objects: results
         .filter(r => r.class !== 'person')
-        .map(obj => obj.class)
+        .map(obj => obj.class),
+      frame: frameData
     };
 
     const commentary = await generateDetailedDescription(sceneData);
@@ -232,7 +250,8 @@ export async function analyzeFrame(videoElement: HTMLVideoElement) {
             confidence: obj.score,
             class: obj.class
           }))
-      ]
+      ],
+      frame: frameData
     };
   } catch (error) {
     console.error('Error analyzing frame:', error);
@@ -248,7 +267,12 @@ export async function analyzeVideo(videoFile: File): Promise<string> {
     video.muted = true;
     video.playsInline = true;
 
-    let detections: Array<{ object: string, timestamp: number }> = [];
+    let detections: Array<{ 
+      object: string;
+      timestamp: number;
+      ageRange?: string;
+      expression?: string;
+    }> = [];
     let analysisStarted = false;
 
     video.addEventListener('loadeddata', async () => {
@@ -275,10 +299,19 @@ export async function analyzeVideo(videoFile: File): Promise<string> {
               const currentTime = (Date.now() - startTime) / 1000;
               
               results.detections.forEach(result => {
-                detections.push({
-                  object: result.class,
-                  timestamp: currentTime
-                });
+                if (result.class === 'person' && result.details) {
+                  detections.push({
+                    object: result.class,
+                    timestamp: currentTime,
+                    ageRange: result.details.annotation.ageRange,
+                    expression: result.details.annotation.expression
+                  });
+                } else {
+                  detections.push({
+                    object: result.class,
+                    timestamp: currentTime
+                  });
+                }
               });
             } catch (error) {
               clearInterval(interval);
@@ -302,24 +335,43 @@ export async function analyzeVideo(videoFile: File): Promise<string> {
   });
 }
 
-async function summarizeVideoAnalysis(detections: Array<{ object: string, timestamp: number }>, duration: number): Promise<string> {
+async function summarizeVideoAnalysis(
+  detections: Array<{ 
+    object: string;
+    timestamp: number;
+    ageRange?: string;
+    expression?: string;
+  }>,
+  duration: number
+): Promise<string> {
   if (detections.length === 0) {
     return "I didn't detect any objects in the video. Try adjusting the lighting or camera angle for better results.";
   }
 
   const objectSummary = detections.reduce((acc, detection) => {
-    if (!acc[detection.object]) {
-      acc[detection.object] = {
+    const key = detection.object;
+    if (!acc[key]) {
+      acc[key] = {
         count: 1,
         firstSeen: detection.timestamp,
-        lastSeen: detection.timestamp
+        lastSeen: detection.timestamp,
+        ageRanges: detection.ageRange ? new Set([detection.ageRange]) : new Set(),
+        expressions: detection.expression ? new Set([detection.expression]) : new Set()
       };
     } else {
-      acc[detection.object].count++;
-      acc[detection.object].lastSeen = detection.timestamp;
+      acc[key].count++;
+      acc[key].lastSeen = detection.timestamp;
+      if (detection.ageRange) acc[key].ageRanges.add(detection.ageRange);
+      if (detection.expression) acc[key].expressions.add(detection.expression);
     }
     return acc;
-  }, {} as Record<string, { count: number; firstSeen: number; lastSeen: number }>);
+  }, {} as Record<string, {
+    count: number;
+    firstSeen: number;
+    lastSeen: number;
+    ageRanges: Set<string>;
+    expressions: Set<string>;
+  }>);
 
   const sceneData = {
     people: Object.entries(objectSummary)
@@ -328,7 +380,11 @@ async function summarizeVideoAnalysis(detections: Array<{ object: string, timest
         pose: 'detected',
         position: `from ${data.firstSeen.toFixed(1)}s to ${data.lastSeen.toFixed(1)}s`,
         activity: `appeared ${data.count} times`,
-        movement: 'throughout the video'
+        movement: 'throughout the video',
+        annotation: {
+          ageRange: Array.from(data.ageRanges).join(', '),
+          expression: Array.from(data.expressions).join(', ')
+        }
       })),
     objects: Object.entries(objectSummary)
       .filter(([object]) => object !== 'person')
@@ -350,7 +406,13 @@ async function summarizeVideoAnalysis(detections: Array<{ object: string, timest
 
     if (people.length > 0) {
       people.forEach(([_, data]) => {
-        summary.push(`Person detected from ${data.firstSeen.toFixed(1)}s to ${data.lastSeen.toFixed(1)}s`);
+        const ageRanges = Array.from(data.ageRanges).join(', ');
+        const expressions = Array.from(data.expressions).join(', ');
+        summary.push(
+          `Person detected from ${data.firstSeen.toFixed(1)}s to ${data.lastSeen.toFixed(1)}s` +
+          (ageRanges ? ` (age: ${ageRanges})` : '') +
+          (expressions ? ` (expressions: ${expressions})` : '')
+        );
       });
     }
 
