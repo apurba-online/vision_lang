@@ -431,17 +431,20 @@ function App() {
                     </div>
                   ) : (
                     <div className="h-full relative rounded-xl overflow-hidden">
-                      <Webcam
-                        ref={webcamRef}
-                        audio={false}
-                        className="w-full h-full object-contain"
-                        screenshotFormat="image/jpeg"
-                        videoConstraints={{
-                          facingMode,
-                          width: { ideal: 1280 },
-                          height: { ideal: 720 }
-                        }}
-                      />
+                      <div className={`${isMobile ? 'aspect-[16/9]' : ''} h-full`}>
+                        <Webcam
+                          ref={webcamRef}
+                          audio={false}
+                          className="w-full h-full object-cover"
+                          screenshotFormat="image/jpeg"
+                          videoConstraints={{
+                            facingMode,
+                            aspectRatio: 16/9,
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                          }}
+                        />
+                      </div>
                       <div className="absolute bottom-4 right-4 flex gap-2">
                         <button
                           onClick={toggleCamera}
@@ -505,7 +508,7 @@ function App() {
                   Analysis Results
                 </h3>
                 {analysis ? (
-                  <div className="flex-1 min-h-0"> {/* Add min-h-0 to allow flex child to shrink */}
+                  <div className="flex-1 min-h-0">
                     <div className="h-full overflow-y-auto scrollbar-thin">
                       <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl">
                         <p className="whitespace-pre-wrap text-sm leading-relaxed">{analysis}</p>
