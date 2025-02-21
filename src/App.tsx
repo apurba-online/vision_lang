@@ -4,7 +4,7 @@ import Webcam from 'react-webcam';
 import { 
   Upload, Camera, Play, Pause, MessageSquare, Loader2, 
   Menu, X, Video, Sun, Moon, Upload as UploadIcon,
-  Settings, Info, Github, FlipHorizontal, Bug
+  Settings, Info, Github, FlipHorizontal, Bug, Terminal
 } from 'lucide-react';
 import { loadModel, analyzeVideo, analyzeFrame, type PersonAnnotation } from './utils/model';
 
@@ -54,7 +54,6 @@ function App() {
   const webcamRef = React.useRef<Webcam>(null);
 
   useEffect(() => {
-    // Check if device is mobile
     const checkMobile = () => {
       setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
     };
@@ -149,11 +148,10 @@ function App() {
       setAnalysis(result.commentary);
       setAnnotations(result.annotations || []);
       
-      // Update debug info
       setDebugInfo({
         hasFrame: !!result.frame,
         frameSize: result.frame?.length || 0,
-        messageCount: 2, // System message + User message
+        messageCount: 2,
         lastUpdate: new Date().toISOString()
       });
       
@@ -212,25 +210,26 @@ function App() {
 
   if (!isModelLoaded) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-white flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-[#1a1b1e] to-[#2b2d31] text-white flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" />
-          <p className="text-xl">Loading AI Model...</p>
+          <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-blue-500" />
+          <p className="text-xl font-medium">Loading AI Model...</p>
+          <p className="text-sm text-gray-400 mt-2">This may take a moment</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-900 dark:to-gray-800 text-gray-900 dark:text-white flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-[#f8f9fa] to-[#e9ecef] dark:from-[#1a1b1e] dark:to-[#2b2d31] text-gray-900 dark:text-white flex flex-col">
       {/* Sidebar Menu */}
       <div 
-        className={`fixed inset-y-0 left-0 w-full md:w-80 bg-white dark:bg-gray-800 transform transition-transform duration-300 ease-in-out z-50 ${
+        className={`fixed inset-y-0 left-0 w-full md:w-80 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm transform transition-transform duration-300 ease-in-out z-50 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } shadow-xl`}
+        } shadow-2xl border-r border-gray-200 dark:border-gray-800`}
       >
         <div className="h-full flex flex-col">
-          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-800">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-3">
                 <Video className="w-6 h-6 text-blue-600 dark:text-blue-500" />
@@ -238,9 +237,9 @@ function App() {
               </div>
               <button
                 onClick={() => setIsSidebarOpen(false)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
               >
-                <X size={24} />
+                <X size={20} />
               </button>
             </div>
           </div>
@@ -255,8 +254,8 @@ function App() {
                     {...getRootProps()}
                     className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${
                       isDragActive 
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
-                        : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+                        ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-500/10' 
+                        : 'border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600'
                     }`}
                   >
                     <input {...getInputProps()} />
@@ -274,16 +273,20 @@ function App() {
 
                 {/* Menu Items */}
                 <div className="space-y-2">
-                  <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                    <Settings size={20} />
+                  <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
+                    <Settings size={18} className="text-gray-500" />
                     <span>Settings</span>
                   </button>
-                  <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                    <Info size={20} />
+                  <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
+                    <Terminal size={18} className="text-gray-500" />
+                    <span>Debug Console</span>
+                  </button>
+                  <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
+                    <Info size={18} className="text-gray-500" />
                     <span>About</span>
                   </button>
-                  <button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition">
-                    <Github size={20} />
+                  <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
+                    <Github size={18} className="text-gray-500" />
                     <span>GitHub</span>
                   </button>
                 </div>
@@ -292,12 +295,12 @@ function App() {
           </div>
 
           {/* Theme Toggle in Sidebar Footer */}
-          <div className="border-t border-gray-200 dark:border-gray-700 p-4">
+          <div className="border-t border-gray-200 dark:border-gray-800 p-4">
             <button
               onClick={toggleTheme}
-              className="w-full flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left"
             >
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+              {theme === 'dark' ? <Sun size={18} className="text-gray-500" /> : <Moon size={18} className="text-gray-500" />}
               <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
             </button>
           </div>
@@ -305,11 +308,11 @@ function App() {
       </div>
 
       {/* Fixed Header */}
-      <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-40 border-b border-gray-200 dark:border-gray-700 h-16">
-        <div className="max-w-7xl mx-auto px-4 md:px-8 h-full flex justify-between items-center">
+      <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-40 border-b border-gray-200 dark:border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <Video className="w-6 h-6 text-blue-600 dark:text-blue-500" />
-            <h1 className="text-xl md:text-2xl font-bold">Video Analysis AI</h1>
+            <h1 className="text-xl font-semibold">Video Analysis AI</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -317,7 +320,7 @@ function App() {
               className={`p-2 rounded-lg transition ${
                 showDebug 
                   ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400' 
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
               title="Toggle Debug Info"
             >
@@ -325,13 +328,13 @@ function App() {
             </button>
             <button
               onClick={toggleTheme}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
             >
               {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             </button>
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition"
             >
               <Menu size={20} />
             </button>
@@ -340,19 +343,22 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 mt-16 px-4 md:px-8 py-6">
+      <main className="flex-1 mt-16 px-4 py-6">
         <div className="max-w-7xl mx-auto">
           {error && (
-            <div className="mb-4 p-4 bg-red-100 dark:bg-red-500/20 border border-red-200 dark:border-red-500 rounded-lg text-red-800 dark:text-red-200 text-sm md:text-base">
-              {error}
+            <div className="mb-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-600 dark:text-red-400 text-sm">
+              <div className="flex items-center gap-2">
+                <X size={16} className="flex-shrink-0" />
+                <p>{error}</p>
+              </div>
             </div>
           )}
 
           {/* Debug Panel */}
           {showDebug && (
-            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <h3 className="text-sm font-semibold mb-2 text-blue-800 dark:text-blue-300">Debug Information</h3>
-              <div className="space-y-1 text-xs text-blue-700 dark:text-blue-400">
+            <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+              <h3 className="text-sm font-semibold mb-2 text-blue-600 dark:text-blue-400">Debug Information</h3>
+              <div className="space-y-1 text-xs text-blue-600 dark:text-blue-400">
                 <p>Frame Captured: {debugInfo.hasFrame ? '✅' : '❌'}</p>
                 <p>Frame Size: {(debugInfo.frameSize / 1024).toFixed(2)} KB</p>
                 <p>Messages to GPT: {debugInfo.messageCount}</p>
@@ -362,111 +368,116 @@ function App() {
           )}
 
           {/* Responsive Layout Container */}
-          <div className="flex flex-col lg:flex-row gap-6 md:gap-8 min-h-[calc(100vh-7rem)]">
+          <div className="grid lg:grid-cols-5 gap-6 min-h-[calc(100vh-7rem)]">
             {/* Video Section */}
-            <div className="lg:w-3/5 lg:h-[calc(100vh-7rem)]">
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl h-full">
-                <div className="p-4 md:p-6 h-full flex flex-col">
-                  <div ref={videoContainerRef} className="relative flex-1">
-                    {mode === 'upload' && videoSource ? (
-                      <div className="h-full flex flex-col">
-                        <video
-                          src={videoSource}
-                          controls
-                          className="w-full h-full object-contain rounded-lg mb-4"
-                        />
+            <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-xl shadow-xl overflow-hidden border border-gray-200 dark:border-gray-800">
+              <div className="p-4 h-full flex flex-col">
+                <div ref={videoContainerRef} className="relative flex-1">
+                  {mode === 'upload' && videoSource ? (
+                    <div className="h-full flex flex-col">
+                      <video
+                        src={videoSource}
+                        controls
+                        className="w-full h-full object-contain rounded-lg mb-4"
+                      />
+                      <button
+                        onClick={handleQuestionSubmit}
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isLoading ? (
+                          <Loader2 size={20} className="animate-spin" />
+                        ) : (
+                          <MessageSquare size={20} />
+                        )}
+                        Analyze Video
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-full relative">
+                      <Webcam
+                        ref={webcamRef}
+                        audio={false}
+                        className="w-full h-full object-contain rounded-lg"
+                        screenshotFormat="image/jpeg"
+                        videoConstraints={{
+                          facingMode,
+                          width: { ideal: 1280 },
+                          height: { ideal: 720 }
+                        }}
+                      />
+                      <div className="absolute bottom-4 right-4 flex gap-2">
                         <button
-                          onClick={handleQuestionSubmit}
-                          disabled={isLoading}
-                          className="w-full flex items-center justify-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed text-sm md:text-base"
+                          onClick={toggleCamera}
+                          className="p-3 rounded-full bg-gray-900/80 hover:bg-gray-800 text-white transition backdrop-blur-sm"
+                          title="Switch Camera"
                         >
-                          {isLoading ? (
-                            <Loader2 size={20} className="animate-spin" />
-                          ) : (
-                            <MessageSquare size={20} />
-                          )}
-                          Analyze Video
+                          <FlipHorizontal size={20} />
+                        </button>
+                        <button
+                          onClick={toggleRecording}
+                          className={`p-3 rounded-full transition backdrop-blur-sm ${
+                            isRecording 
+                              ? 'bg-red-600 hover:bg-red-700' 
+                              : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
+                          } text-white`}
+                        >
+                          {isRecording ? <Pause size={20} /> : <Play size={20} />}
                         </button>
                       </div>
-                    ) : (
-                      <div className="h-full relative">
-                        <Webcam
-                          ref={webcamRef}
-                          audio={false}
-                          className="w-full h-full object-contain rounded-lg"
-                          screenshotFormat="image/jpeg"
-                          videoConstraints={{
-                            facingMode,
-                            width: { ideal: 1280 },
-                            height: { ideal: 720 }
-                          }}
-                        />
-                        <div className="absolute bottom-4 right-4 flex gap-2">
-                          <button
-                            onClick={toggleCamera}
-                            className="p-2 md:p-3 rounded-full bg-gray-800/80 hover:bg-gray-700 text-white transition backdrop-blur-sm"
-                            title="Switch Camera"
-                          >
-                            <FlipHorizontal size={24} />
-                          </button>
-                          <button
-                            onClick={toggleRecording}
-                            className={`p-2 md:p-3 rounded-full transition ${
-                              isRecording 
-                                ? 'bg-red-600 hover:bg-red-700' 
-                                : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
-                            } text-white`}
-                          >
-                            {isRecording ? <Pause size={24} /> : <Play size={24} />}
-                          </button>
+                    </div>
+                  )}
+
+                  {/* Annotation Boxes */}
+                  {annotations.map((annotation, index) => {
+                    const [x, y, width, height] = annotation.bbox;
+                    const containerRect = videoContainerRef.current?.getBoundingClientRect();
+                    if (!containerRect) return null;
+
+                    const scaleX = containerRect.width / (webcamRef.current?.video?.videoWidth || 1);
+                    const scaleY = containerRect.height / (webcamRef.current?.video?.videoHeight || 1);
+
+                    return (
+                      <div
+                        key={index}
+                        className="absolute pointer-events-none"
+                        style={{
+                          left: `${x * scaleX}px`,
+                          top: `${y * scaleY}px`,
+                          width: `${width * scaleX}px`,
+                          height: `${height * scaleY}px`,
+                          border: '2px solid #3b82f6',
+                          backgroundColor: 'rgba(59, 130, 246, 0.1)'
+                        }}
+                      >
+                        <div className="absolute -top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-2 py-1 rounded text-xs whitespace-nowrap">
+                          {renderAnnotationLabel(annotation)}
                         </div>
                       </div>
-                    )}
-
-                    {/* Annotation Boxes */}
-                    {annotations.map((annotation, index) => {
-                      const [x, y, width, height] = annotation.bbox;
-                      const containerRect = videoContainerRef.current?.getBoundingClientRect();
-                      if (!containerRect) return null;
-
-                      const scaleX = containerRect.width / (webcamRef.current?.video?.videoWidth || 1);
-                      const scaleY = containerRect.height / (webcamRef.current?.video?.videoHeight || 1);
-
-                      return (
-                        <div
-                          key={index}
-                          className="absolute pointer-events-none"
-                          style={{
-                            left: `${x * scaleX}px`,
-                            top: `${y * scaleY}px`,
-                            width: `${width * scaleX}px`,
-                            height: `${height * scaleY}px`,
-                            border: '2px solid #3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)'
-                          }}
-                        >
-                          <div className="absolute -top-6 md:-top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-1.5 md:px-2 py-0.5 md:py-1 rounded text-xs whitespace-nowrap">
-                            {renderAnnotationLabel(annotation)}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
             {/* Analysis Section */}
-            {analysis && (
-              <div className="lg:w-2/5 lg:h-[calc(100vh-7rem)]">
-                <div className="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-xl h-full flex flex-col">
-                  <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4">Analysis Results</h3>
-                  <div className="bg-gray-50 dark:bg-gray-700 p-3 md:p-4 rounded-lg flex-1 overflow-y-auto text-sm md:text-base">
-                    <p className="whitespace-pre-wrap">{analysis}</p>
+            <div className="lg:col-span-2">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-xl shadow-xl h-full border border-gray-200 dark:border-gray-800">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
+                  Analysis Results
+                </h3>
+                {analysis ? (
+                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg h-[calc(100%-4rem)] overflow-y-auto">
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{analysis}</p>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-center justify-center h-[calc(100%-4rem)] text-gray-400 dark:text-gray-600">
+                    <p className="text-sm">Start recording or upload a video to see analysis</p>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         </div>
       </main>
