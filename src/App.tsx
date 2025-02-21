@@ -208,6 +208,16 @@ function App() {
     return details.join(' • ');
   };
 
+  const switchToCamera = useCallback(() => {
+    if (videoSource) {
+      URL.revokeObjectURL(videoSource);
+    }
+    setVideoSource(null);
+    setVideoFile(null);
+    setMode('camera');
+    setAnalysis('');
+  }, [videoSource]);
+
   if (!isModelLoaded) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-[#1a1b1e] to-[#2b2d31] text-white flex items-center justify-center">
@@ -247,6 +257,22 @@ function App() {
           <div className="flex-1 overflow-y-auto">
             <div className="p-4">
               <div className="space-y-4">
+                {/* Camera Switch Button - Only show when video is uploaded */}
+                {mode === 'upload' && (
+                  <div className="mb-4">
+                    <button
+                      onClick={() => {
+                        switchToCamera();
+                        setIsSidebarOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-500/20 transition text-left"
+                    >
+                      <Camera size={18} />
+                      <span>Switch to Live Camera</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Upload Section */}
                 <div className="mb-8">
                   <h3 className="text-lg font-medium mb-4">Upload Video</h3>
@@ -370,20 +396,20 @@ function App() {
           {/* Responsive Layout Container */}
           <div className="grid lg:grid-cols-5 gap-6 min-h-[calc(100vh-7rem)]">
             {/* Video Section */}
-            <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-xl shadow-xl overflow-hidden border border-gray-200 dark:border-gray-800">
+            <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-gray-800">
               <div className="p-4 h-full flex flex-col">
-                <div ref={videoContainerRef} className="relative flex-1">
+                <div ref={videoContainerRef} className="relative flex-1 rounded-xl overflow-hidden">
                   {mode === 'upload' && videoSource ? (
                     <div className="h-full flex flex-col">
                       <video
                         src={videoSource}
                         controls
-                        className="w-full h-full object-contain rounded-lg mb-4"
+                        className="w-full h-full object-contain rounded-xl overflow-hidden"
                       />
                       <button
                         onClick={handleQuestionSubmit}
                         disabled={isLoading}
-                        className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full mt-4 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isLoading ? (
                           <Loader2 size={20} className="animate-spin" />
@@ -394,11 +420,11 @@ function App() {
                       </button>
                     </div>
                   ) : (
-                    <div className="h-full relative">
+                    <div className="h-full relative rounded-xl overflow-hidden">
                       <Webcam
                         ref={webcamRef}
                         audio={false}
-                        className="w-full h-full object-contain rounded-lg"
+                        className="w-full h-full object-contain"
                         screenshotFormat="image/jpeg"
                         videoConstraints={{
                           facingMode,
@@ -447,10 +473,11 @@ function App() {
                           width: `${width * scaleX}px`,
                           height: `${height * scaleY}px`,
                           border: '2px solid #3b82f6',
-                          backgroundColor: 'rgba(59, 130, 246, 0.1)'
+                          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                          borderRadius: '0.5rem'
                         }}
                       >
-                        <div className="absolute -top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-2 py-1 rounded text-xs whitespace-nowrap">
+                        <div className="absolute -top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-2 py-1 rounded-lg text-xs whitespace-nowrap">
                           {renderAnnotationLabel(annotation)}
                         </div>
                       </div>
@@ -462,13 +489,13 @@ function App() {
 
             {/* Analysis Section */}
             <div className="lg:col-span-2">
-              <div className="bg-white dark:bg-gray-900 p-6 rounded-xl shadow-xl h-full border border-gray-200 dark:border-gray-800">
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                   <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
                   Analysis Results
                 </h3>
                 {analysis ? (
-                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg h-[calc(100%-4rem)] overflow-y-auto">
+                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl h-[calc(100%-4rem)] overflow-y-auto">
                     <p className="whitespace-pre-wrap text-sm leading-relaxed">{analysis}</p>
                   </div>
                 ) : (
