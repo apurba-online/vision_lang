@@ -53,6 +53,17 @@ function App() {
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const webcamRef = React.useRef<Webcam>(null);
 
+  const clearAnalysis = useCallback(() => {
+    setAnalysis('');
+    setAnnotations([]);
+    if (analysisLoopRef.current) {
+      cancelAnimationFrame(analysisLoopRef.current);
+      analysisLoopRef.current = undefined;
+    }
+    isAnalyzingRef.current = false;
+    lastAnalysisTimeRef.current = 0;
+  }, []);
+
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent));
@@ -135,7 +146,10 @@ function App() {
   };
 
   const analyzeWebcamFrame = async () => {
-    if (!webcamRef.current?.video || !isAnalyzingRef.current) return;
+    if (!webcamRef.current?.video || !isAnalyzingRef.current) {
+      clearAnalysis();
+      return;
+    }
 
     const currentTime = Date.now();
     if (currentTime - lastAnalysisTimeRef.current < 10000) {
@@ -145,51 +159,47 @@ function App() {
 
     try {
       const result = await analyzeFrame(webcamRef.current.video);
-      setAnalysis(result.commentary);
-      setAnnotations(result.annotations || []);
-      
-      setDebugInfo({
-        hasFrame: !!result.frame,
-        frameSize: result.frame?.length || 0,
-        messageCount: 2,
-        lastUpdate: new Date().toISOString()
-      });
-      
-      lastAnalysisTimeRef.current = currentTime;
+      if (isAnalyzingRef.current) { // Only update if still recording
+        setAnalysis(result.commentary);
+        setAnnotations(result.annotations || []);
+        
+        setDebugInfo({
+          hasFrame: !!result.frame,
+          frameSize: result.frame?.length || 0,
+          messageCount: 2,
+          lastUpdate: new Date().toISOString()
+        });
+        
+        lastAnalysisTimeRef.current = currentTime;
+      }
     } catch (error) {
       console.error('Analysis error:', error);
     }
 
     if (isAnalyzingRef.current) {
       analysisLoopRef.current = requestAnimationFrame(analyzeWebcamFrame);
+    } else {
+      clearAnalysis();
     }
   };
 
   const toggleRecording = () => {
     if (!isRecording) {
+      clearAnalysis(); // Clear before starting new recording
       setIsRecording(true);
       isAnalyzingRef.current = true;
       lastAnalysisTimeRef.current = 0;
       analyzeWebcamFrame();
     } else {
       setIsRecording(false);
-      isAnalyzingRef.current = false;
-      if (analysisLoopRef.current) {
-        cancelAnimationFrame(analysisLoopRef.current);
-      }
-      setAnalysis('');
+      clearAnalysis(); // Clear when stopping recording
     }
   };
 
   useEffect(() => {
-    setAnalysis('');
-    setAnnotations([]);
+    clearAnalysis();
     setIsRecording(false);
-    isAnalyzingRef.current = false;
-    if (analysisLoopRef.current) {
-      cancelAnimationFrame(analysisLoopRef.current);
-    }
-  }, [mode]);
+  }, [mode, clearAnalysis]);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
@@ -215,8 +225,8 @@ function App() {
     setVideoSource(null);
     setVideoFile(null);
     setMode('camera');
-    setAnalysis('');
-  }, [videoSource]);
+    clearAnalysis();
+  }, [videoSource, clearAnalysis]);
 
   if (!isModelLoaded) {
     return (
@@ -394,7 +404,7 @@ function App() {
           )}
 
           {/* Responsive Layout Container */}
-          <div className="grid lg:grid-cols-5 gap-6 min-h-[calc(100vh-7rem)]">
+          <div className="grid lg:grid-cols-5 gap-6">
             {/* Video Section */}
             <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-gray-800">
               <div className="p-4 h-full flex flex-col">
@@ -488,18 +498,22 @@ function App() {
             </div>
 
             {/* Analysis Section */}
-            <div className="lg:col-span-2">
-              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <div className={`lg:col-span-2 ${isMobile ? 'h-[20vh]' : 'h-[calc(100vh-8rem)]'}`}>
+              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800 flex flex-col">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 flex-shrink-0">
                   <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
                   Analysis Results
                 </h3>
                 {analysis ? (
-                  <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl h-[calc(100%-4rem)] overflow-y-auto">
-                    <p className="whitespace-pre-wrap text-sm leading-relaxed">{analysis}</p>
+                  <div className="flex-1 min-h-0"> {/* Add min-h-0 to allow flex child to shrink */}
+                    <div className="h-full overflow-y-auto scrollbar-thin">
+                      <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl">
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed">{analysis}</p>
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center h-[calc(100%-4rem)] text-gray-400 dark:text-gray-600">
+                  <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-600">
                     <p className="text-sm">Start recording or upload a video to see analysis</p>
                   </div>
                 )}
