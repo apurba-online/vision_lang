@@ -431,7 +431,7 @@ function App() {
                     </div>
                   ) : (
                     <div className="h-full relative rounded-xl overflow-hidden">
-                      <div className={`${isMobile ? 'aspect-[1/1]' : ''} h-full`}>
+                      <div className={`${isMobile ? 'object-cover' : 'object-contain'} h-full`}>
                         <Webcam
                           ref={webcamRef}
                           audio={false}
