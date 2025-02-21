@@ -435,7 +435,7 @@ function App() {
                         <Webcam
                           ref={webcamRef}
                           audio={false}
-                          className="w-full h-full object-fit"
+                          className="w-full h-full object-cover"
                           screenshotFormat="image/jpeg"
                           videoConstraints={{
                             facingMode,
