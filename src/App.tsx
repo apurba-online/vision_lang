@@ -498,7 +498,7 @@ function App() {
             </div>
 
             {/* Analysis Section */}
-            <div className={`lg:col-span-2 ${isMobile ? 'h-[20vh]' : 'h-[calc(100vh-8rem)]'}`}>
+            <div className={`lg:col-span-2 ${isMobile ? 'h-[40vh]' : 'h-[calc(100vh-8rem)]'}`}>
               <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800 flex flex-col">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 flex-shrink-0">
                   <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
