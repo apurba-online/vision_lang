@@ -45,7 +45,6 @@ async function processQueue() {
   while (RATE_LIMIT.queue.length > 0) {
     const queueItem = RATE_LIMIT.queue[0];
     
-    // If we're near the rate limit, wait until the next reset
     if (RATE_LIMIT.currentTokens > RATE_LIMIT.tokensPerMin * RATE_LIMIT.cooldownThreshold) {
       const timeUntilReset = RATE_LIMIT.resetInterval - (Date.now() - RATE_LIMIT.lastReset);
       await new Promise(resolve => setTimeout(resolve, Math.max(timeUntilReset, 1000)));
@@ -80,7 +79,6 @@ async function processQueue() {
       queueItem.resolve(`Error analyzing scene: ${error.message}`);
     }
 
-    // Add a small delay between requests
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
   
@@ -107,6 +105,7 @@ export async function generateDetailedDescription(sceneData: {
   objects: string[];
   frame?: string;
   error?: string;
+  isScenic?: boolean;
 }): Promise<string> {
   if (!openai) {
     return generateBasicDescription(sceneData);
@@ -126,23 +125,34 @@ export async function generateDetailedDescription(sceneData: {
       try {
         const base64Image = convertDataURLToBase64(sceneData.frame);
         
-        // Create a detailed scene description including age and expression
-        const sceneContext = sceneData.people.map(person => {
-          const age = person.annotation?.ageRange || 'unknown age';
-          const expression = person.annotation?.expression || 'neutral expression';
-          return `A person (${age}, ${expression}) is ${person.pose} ${person.position}${person.movement !== 'staying still' ? `, ${person.movement}` : ''}${person.activity ? `, ${person.activity}` : ''}.`;
-        }).join(' ');
-
-        const objectContext = sceneData.objects.length > 0
-          ? `Nearby objects include ${sceneData.objects.join(' and ')}.`
-          : '';
+        const systemPrompt = sceneData.isScenic
+          ? `You are a nature and landscape analyst. Describe the scene in detail, focusing on:
+              1. Natural features (waterfalls, mountains, forests, etc.)
+              2. Lighting and atmospheric conditions
+              3. Colors and textures in the landscape
+              4. Environmental details (rock formations, vegetation)
+              5. Overall mood and atmosphere of the scene
+              6. Time of day and weather conditions if apparent
+              7. Scale and perspective of landscape elements
+              
+              Create a vivid, engaging description that captures the essence of the natural scene. Report it like a journalist. No bullet points or bold words. (Within 100 to 150 words.)`
+          : `You are a scene analyst. Describe the scene comprehensively, including:
+              1. Overall environment and setting
+              2. Notable objects and their arrangement
+              3. People and their activities if present
+              4. Lighting and atmosphere
+              5. Colors and textures
+              6. Movement and action
+              7. General mood of the scene
+              
+              If there is anything concering write that too. Report it like a journalist. No bullet points or bold words. (Within 100 to 150 words.)`;
 
         const response = await openai.chat.completions.create({
           model: "gpt-4o",
           messages: [
             {
               role: "system",
-              content: "You are a natural scene descriptor. Describe the image in 3-4 concise sentences, incorporating the provided age and expression details. Focus on creating a natural, flowing description that includes physical appearance, expressions, and environmental details. Avoid technical terms."
+              content: systemPrompt
             },
             {
               role: "user",
@@ -155,12 +165,12 @@ export async function generateDetailedDescription(sceneData: {
                 },
                 {
                   type: "text",
-                  text: `Describe this scene naturally, incorporating these details: ${sceneContext} ${objectContext}`
+                  text: "Describe this scene in detail, focusing on its visual elements and atmosphere."
                 }
               ]
             }
           ],
-          max_tokens: 150,
+          max_tokens: 300,
           temperature: 0.7
         });
         
@@ -168,7 +178,7 @@ export async function generateDetailedDescription(sceneData: {
         RATE_LIMIT.currentTokens += Math.ceil(description.length / 3);
         resolve(description);
       } catch (error) {
-        console.error('GPT-4 API error:', error);
+        console.error('GPT-4o API error:', error);
         resolve(generateBasicDescription(sceneData));
       }
     };
@@ -196,35 +206,42 @@ function generateBasicDescription(sceneData: {
   }>;
   objects: string[];
   error?: string;
+  isScenic?: boolean;
 }): string {
   if (sceneData.error) {
     return sceneData.error;
   }
 
+  if (sceneData.isScenic) {
+    return "This video shows a scenic view. The analysis system is focusing on the natural elements and landscape features of the scene.";
+  }
+
   if (sceneData.people.length === 0 && sceneData.objects.length === 0) {
-    return "No objects or people detected in the scene.";
+    return "The scene is visible but no specific objects or people are detected. The video appears to show general scenery or environmental elements.";
   }
 
-  const descriptions = sceneData.people.map(person => {
-    const parts = [];
-    const age = person.annotation?.ageRange || 'unknown age';
-    const expression = person.annotation?.expression || 'neutral expression';
-    
-    parts.push(`A person (${age}, ${expression}) is ${person.pose} ${person.position}`);
-    if (person.movement !== 'staying still') {
-      parts.push(`they are ${person.movement}`);
-    }
-    if (person.activity) {
-      parts.push(`while ${person.activity}`);
-    }
-    return parts.join(', ') + '.';
-  });
+  const descriptions = [];
 
-  let description = descriptions.join(' ');
-  
+  if (sceneData.people.length > 0) {
+    sceneData.people.forEach(person => {
+      const parts = [];
+      const age = person.annotation?.ageRange || 'unknown age';
+      const expression = person.annotation?.expression || 'neutral expression';
+      
+      parts.push(`A person (${age}, ${expression}) is ${person.pose} ${person.position}`);
+      if (person.movement !== 'staying still') {
+        parts.push(`they are ${person.movement}`);
+      }
+      if (person.activity) {
+        parts.push(`while ${person.activity}`);
+      }
+      descriptions.push(parts.join(', ') + '.');
+    });
+  }
+
   if (sceneData.objects.length > 0) {
-    description += ` Nearby objects include ${sceneData.objects.join(' and ')}.`;
+    descriptions.push(`The scene contains ${sceneData.objects.join(', ')}.`);
   }
 
-  return description;
+  return descriptions.join(' ');
 }

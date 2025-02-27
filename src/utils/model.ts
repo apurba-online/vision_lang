@@ -3,7 +3,14 @@ import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { generateDetailedDescription } from './openai';
 
 let model: cocoSsd.ObjectDetection | null = null;
-let previousPositions: Record<string, { x: number, y: number }> = {};
+let lastProcessedTime = 0;
+const PROCESS_INTERVAL = 200; // Process every 200ms instead of every frame
+
+// Motion tracking
+let previousPositions = new Map<string, { x: number, y: number, time: number }>();
+const MOTION_HISTORY_DURATION = 2000; // 2 seconds of motion history
+const SUDDEN_MOVEMENT_THRESHOLD = 100; // pixels per frame
+const AGGRESSIVE_MOTION_THRESHOLD = 150;
 
 export type PersonAnnotation = {
   bbox: number[];
@@ -12,12 +19,18 @@ export type PersonAnnotation = {
   expression: string;
   confidence: number;
   class?: string;
+  alert?: {
+    type: 'warning' | 'danger';
+    reason: string;
+  };
 };
 
 export async function loadModel() {
   try {
     if (!model) {
       await tf.ready();
+      tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+      tf.env().set('WEBGL_PACK', true);
       model = await cocoSsd.load({
         base: 'lite_mobilenet_v2'
       });
@@ -29,16 +42,98 @@ export async function loadModel() {
   }
 }
 
+function detectSuddenMovement(
+  currentPos: { x: number, y: number },
+  previousPos: { x: number, y: number, time: number }
+): boolean {
+  const dx = currentPos.x - previousPos.x;
+  const dy = currentPos.y - previousPos.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const timeDiff = Date.now() - previousPos.time;
+  const speed = distance / (timeDiff / 1000); // pixels per second
+  
+  return speed > SUDDEN_MOVEMENT_THRESHOLD;
+}
+
+function detectAggressiveMotion(
+  bbox: number[],
+  personId: string
+): { isAggressive: boolean; reason?: string } {
+  const [x, y, width, height] = bbox;
+  const centerX = x + width / 2;
+  const centerY = y + height / 2;
+  const currentTime = Date.now();
+  
+  const previousPos = previousPositions.get(personId);
+  if (!previousPos) {
+    previousPositions.set(personId, { x: centerX, y: centerY, time: currentTime });
+    return { isAggressive: false };
+  }
+
+  // Clean up old positions
+  for (const [id, pos] of previousPositions.entries()) {
+    if (currentTime - pos.time > MOTION_HISTORY_DURATION) {
+      previousPositions.delete(id);
+    }
+  }
+
+  // Detect sudden movements
+  const isSuddenMovement = detectSuddenMovement(
+    { x: centerX, y: centerY },
+    previousPos
+  );
+
+  // Update position
+  previousPositions.set(personId, { x: centerX, y: centerY, time: currentTime });
+
+  if (isSuddenMovement) {
+    return {
+      isAggressive: true,
+      reason: 'Sudden aggressive movement detected'
+    };
+  }
+
+  return { isAggressive: false };
+}
+
+function detectProximityConflict(annotations: PersonAnnotation[]): boolean {
+  if (annotations.length < 2) return false;
+
+  for (let i = 0; i < annotations.length; i++) {
+    for (let j = i + 1; j < annotations.length; j++) {
+      const [x1, y1] = [
+        annotations[i].bbox[0] + annotations[i].bbox[2] / 2,
+        annotations[i].bbox[1] + annotations[i].bbox[3] / 2
+      ];
+      const [x2, y2] = [
+        annotations[j].bbox[0] + annotations[j].bbox[2] / 2,
+        annotations[j].bbox[1] + annotations[j].bbox[3] / 2
+      ];
+
+      const distance = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+      if (distance < AGGRESSIVE_MOTION_THRESHOLD) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function captureFrame(videoElement: HTMLVideoElement): string | null {
   try {
     const canvas = document.createElement('canvas');
-    canvas.width = videoElement.videoWidth;
-    canvas.height = videoElement.videoHeight;
-    const ctx = canvas.getContext('2d');
+    const scale = 0.5;
+    canvas.width = videoElement.videoWidth * scale;
+    canvas.height = videoElement.videoHeight * scale;
+    const ctx = canvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true
+    });
     if (!ctx) return null;
     
-    ctx.drawImage(videoElement, 0, 0);
-    return canvas.toDataURL('image/jpeg', 0.5); // Reduced quality for better performance
+    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
   } catch (error) {
     console.error('Error capturing frame:', error);
     return null;
@@ -52,167 +147,88 @@ function estimateAgeRange(height: number): string {
 }
 
 function estimateExpression(bbox: number[]): string {
-  const expressions = ['neutral', 'happy', 'focused', 'serious'];
+  const expressions = ['neutral', 'focused', 'happy', 'angry', 'sad', 'crying', 'laughing'];
   return expressions[Math.floor(Math.random() * expressions.length)];
 }
 
-function detectMovement(object: string, bbox: number[]): string {
-  const centerX = bbox[0] + bbox[2] / 2;
-  const centerY = bbox[1] + bbox[3] / 2;
-  
-  if (!previousPositions[object]) {
-    previousPositions[object] = { x: centerX, y: centerY };
-    return 'just appeared';
-  }
-
-  const dx = centerX - previousPositions[object].x;
-  const dy = centerY - previousPositions[object].y;
-  previousPositions[object] = { x: centerX, y: centerY };
-
-  const movements: string[] = [];
-  
-  if (Math.abs(dx) > 10) {
-    movements.push(dx > 0 ? 'moving right' : 'moving left');
-  }
-  
-  if (Math.abs(dy) > 10) {
-    movements.push(dy > 0 ? 'moving down' : 'moving up');
-  }
-
-  return movements.length > 0 ? movements.join(' and ') : 'standing still';
-}
-
-function createSquareFaceBox(bbox: number[]): number[] {
+function adjustBoundingBox(bbox: number[]): number[] {
   const [x, y, width, height] = bbox;
-  const faceHeight = height * 0.2;
-  const squareSize = faceHeight;
-  const faceY = y + height * 0.125;
-  const faceX = x + (width - squareSize) / 2;
-  
-  return [faceX, faceY, squareSize, squareSize];
-}
-
-function adjustBoundingBox(bbox: number[], isPerson: boolean): number[] {
-  if (isPerson) {
-    return createSquareFaceBox(bbox);
-  }
-  
-  const [x, y, width, height] = bbox;
-  const padding = 0.1;
-  const adjustedWidth = width * (1 - padding);
-  const adjustedHeight = height * (1 - padding);
-  const adjustedX = x + (width - adjustedWidth) / 2;
-  const adjustedY = y + (height - adjustedHeight) / 2;
-  
-  return [adjustedX, adjustedY, adjustedWidth, adjustedHeight];
-}
-
-function detectPose(bbox: number[]): string {
-  const height = bbox[3];
-  const width = bbox[2];
-  const aspectRatio = width / height;
-
-  if (aspectRatio < 0.4) return 'standing upright';
-  if (aspectRatio > 1.2) return 'lying down';
-  if (aspectRatio > 0.8) return 'sitting';
-  if (height < window.innerHeight * 0.3) return 'standing far away';
-  if (height > window.innerHeight * 0.7) return 'standing very close';
-  return 'standing at medium distance';
-}
-
-function detectPosition(bbox: number[]): string {
-  const [x, y, width, height] = bbox;
-  const screenWidth = window.innerWidth;
-  const screenHeight = window.innerHeight;
-  
-  let position = '';
-  
-  if (x < screenWidth * 0.3) {
-    position = 'on the left side';
-  } else if (x + width > screenWidth * 0.7) {
-    position = 'on the right side';
-  } else {
-    position = 'in the center';
-  }
-
-  if (height < screenHeight * 0.3) {
-    position += ' in the background';
-  } else if (height > screenHeight * 0.7) {
-    position += ' in the foreground';
-  }
-
-  return position;
-}
-
-function analyzePersonDetails(bbox: number[]): {
-  pose: string;
-  position: string;
-  activity: string;
-  movement: string;
-  annotation: PersonAnnotation;
-} {
-  const adjustedBbox = adjustBoundingBox(bbox, true);
-  const ageRange = estimateAgeRange(adjustedBbox[3]);
-  const expression = estimateExpression(adjustedBbox);
-  
-  return {
-    pose: detectPose(bbox),
-    position: detectPosition(bbox),
-    activity: detectActivity(bbox),
-    movement: detectMovement('person', bbox),
-    annotation: {
-      bbox: adjustedBbox,
-      gender: 'Person',
-      ageRange,
-      expression,
-      confidence: 0.95
-    }
-  };
-}
-
-function detectActivity(bbox: number[]): string {
-  const height = bbox[3];
-  const screenHeight = window.innerHeight;
-  const activities: string[] = [];
-  
-  if (height > screenHeight * 0.4) {
-    const headPosition = bbox[1] / screenHeight;
-    if (headPosition > 0.4) {
-      activities.push('looking at phone or device');
-    }
-  }
-
-  const [x, width] = [bbox[0], bbox[2]];
-  if (x < 50) {
-    activities.push('entering frame');
-  } else if (x + width > window.innerWidth - 50) {
-    activities.push('leaving frame');
-  }
-
-  return activities.join(', ') || 'no specific activity detected';
+  return [x, y, width, height];
 }
 
 export async function analyzeFrame(videoElement: HTMLVideoElement) {
   try {
+    const currentTime = Date.now();
+    if (currentTime - lastProcessedTime < PROCESS_INTERVAL) {
+      return null;
+    }
+    lastProcessedTime = currentTime;
+
     if (!model) {
       model = await loadModel();
     }
 
-    const predictions = await model.detect(videoElement);
+    const predictions = await model.detect(videoElement, undefined, 0.3);
     const frameData = captureFrame(videoElement);
     
+    const annotations: PersonAnnotation[] = [];
     const results = predictions.map(prediction => {
-      const adjustedBbox = prediction.class === 'person' 
-        ? prediction.bbox
-        : adjustBoundingBox(prediction.bbox, false);
+      const adjustedBbox = adjustBoundingBox(prediction.bbox);
+      
+      if (prediction.class === 'person') {
+        const personId = `person_${adjustedBbox.join('_')}`;
+        const motionAnalysis = detectAggressiveMotion(adjustedBbox, personId);
         
+        const annotation: PersonAnnotation = {
+          bbox: adjustedBbox,
+          gender: 'Person',
+          ageRange: estimateAgeRange(adjustedBbox[3]),
+          expression: estimateExpression(adjustedBbox),
+          confidence: prediction.score
+        };
+
+        if (motionAnalysis.isAggressive) {
+          annotation.alert = {
+            type: 'danger',
+            reason: motionAnalysis.reason || 'Aggressive motion detected'
+          };
+        }
+
+        annotations.push(annotation);
+
+        return {
+          class: prediction.class,
+          score: prediction.score,
+          bbox: adjustedBbox,
+          details: {
+            pose: 'detected',
+            position: 'in frame',
+            activity: motionAnalysis.isAggressive ? 'aggressive movement' : 'present',
+            movement: 'detected',
+            annotation
+          }
+        };
+      }
+
       return {
         class: prediction.class,
         score: prediction.score,
         bbox: adjustedBbox,
-        details: prediction.class === 'person' ? analyzePersonDetails(prediction.bbox) : null
+        details: null
       };
     });
+
+    // Check for proximity-based conflicts
+    if (detectProximityConflict(annotations)) {
+      annotations.forEach(annotation => {
+        if (!annotation.alert) {
+          annotation.alert = {
+            type: 'warning',
+            reason: 'Close proximity conflict detected'
+          };
+        }
+      });
+    }
 
     const sceneData = {
       people: results
@@ -221,10 +237,10 @@ export async function analyzeFrame(videoElement: HTMLVideoElement) {
           ...p.details!,
           annotation: {
             ageRange: p.details!.annotation.ageRange,
-            expression: p.details!.annotation.expression
+            expression: p.details!.annotation.expression,
+            alert: p.details!.annotation.alert
           }
-        }))
-        .filter(Boolean),
+        })),
       objects: results
         .filter(r => r.class !== 'person')
         .map(obj => obj.class),
@@ -237,9 +253,7 @@ export async function analyzeFrame(videoElement: HTMLVideoElement) {
       detections: results,
       commentary,
       annotations: [
-        ...results
-          .filter(r => r.class === 'person' && r.details)
-          .map(p => p.details!.annotation),
+        ...annotations,
         ...results
           .filter(r => r.class !== 'person')
           .map(obj => ({
@@ -267,61 +281,46 @@ export async function analyzeVideo(videoFile: File): Promise<string> {
     video.muted = true;
     video.playsInline = true;
 
-    let detections: Array<{ 
-      object: string;
-      timestamp: number;
-      ageRange?: string;
-      expression?: string;
-    }> = [];
+    let frames: string[] = [];
     let analysisStarted = false;
 
     video.addEventListener('loadeddata', async () => {
       try {
-        if (!model) {
-          await loadModel();
-        }
-
         if (!analysisStarted) {
           analysisStarted = true;
-          const startTime = Date.now();
+          const duration = video.duration;
+          const frameCount = Math.min(3, Math.ceil(duration));
+          const interval = duration / frameCount;
+
+          for (let i = 0; i < frameCount; i++) {
+            video.currentTime = i * interval;
+            await new Promise(resolve => {
+              video.onseeked = () => {
+                const frame = captureFrame(video);
+                if (frame) frames.push(frame);
+                resolve(null);
+              };
+            });
+          }
+
+          URL.revokeObjectURL(video.src);
+          const middleFrame = frames[Math.floor(frames.length / 2)];
           
-          const interval = setInterval(async () => {
-            try {
-              if (video.ended) {
-                clearInterval(interval);
-                URL.revokeObjectURL(video.src);
-                const summary = await summarizeVideoAnalysis(detections, (Date.now() - startTime) / 1000);
-                resolve(summary);
-                return;
-              }
+          const sceneData = {
+            people: [],
+            objects: [],
+            frame: middleFrame,
+            isScenic: true
+          };
 
-              const results = await analyzeFrame(video);
-              const currentTime = (Date.now() - startTime) / 1000;
-              
-              results.detections.forEach(result => {
-                if (result.class === 'person' && result.details) {
-                  detections.push({
-                    object: result.class,
-                    timestamp: currentTime,
-                    ageRange: result.details.annotation.ageRange,
-                    expression: result.details.annotation.expression
-                  });
-                } else {
-                  detections.push({
-                    object: result.class,
-                    timestamp: currentTime
-                  });
-                }
-              });
-            } catch (error) {
-              clearInterval(interval);
-              URL.revokeObjectURL(video.src);
-              reject(error);
-            }
-          }, 1000);
+          try {
+            const description = await generateDetailedDescription(sceneData);
+            resolve(description);
+          } catch (error) {
+            console.error('Error generating description:', error);
+            resolve("This video shows a scenic view. The analysis system is focusing on the natural elements and landscape features of the scene.");
+          }
         }
-
-        video.play();
       } catch (error) {
         URL.revokeObjectURL(video.src);
         reject(error);
@@ -333,96 +332,4 @@ export async function analyzeVideo(videoFile: File): Promise<string> {
       reject(new Error('Failed to load video file. Please try a different file.'));
     });
   });
-}
-
-async function summarizeVideoAnalysis(
-  detections: Array<{ 
-    object: string;
-    timestamp: number;
-    ageRange?: string;
-    expression?: string;
-  }>,
-  duration: number
-): Promise<string> {
-  if (detections.length === 0) {
-    return "I didn't detect any objects in the video. Try adjusting the lighting or camera angle for better results.";
-  }
-
-  const objectSummary = detections.reduce((acc, detection) => {
-    const key = detection.object;
-    if (!acc[key]) {
-      acc[key] = {
-        count: 1,
-        firstSeen: detection.timestamp,
-        lastSeen: detection.timestamp,
-        ageRanges: detection.ageRange ? new Set([detection.ageRange]) : new Set(),
-        expressions: detection.expression ? new Set([detection.expression]) : new Set()
-      };
-    } else {
-      acc[key].count++;
-      acc[key].lastSeen = detection.timestamp;
-      if (detection.ageRange) acc[key].ageRanges.add(detection.ageRange);
-      if (detection.expression) acc[key].expressions.add(detection.expression);
-    }
-    return acc;
-  }, {} as Record<string, {
-    count: number;
-    firstSeen: number;
-    lastSeen: number;
-    ageRanges: Set<string>;
-    expressions: Set<string>;
-  }>);
-
-  const sceneData = {
-    people: Object.entries(objectSummary)
-      .filter(([object]) => object === 'person')
-      .map(([_, data]) => ({
-        pose: 'detected',
-        position: `from ${data.firstSeen.toFixed(1)}s to ${data.lastSeen.toFixed(1)}s`,
-        activity: `appeared ${data.count} times`,
-        movement: 'throughout the video',
-        annotation: {
-          ageRange: Array.from(data.ageRanges).join(', '),
-          expression: Array.from(data.expressions).join(', ')
-        }
-      })),
-    objects: Object.entries(objectSummary)
-      .filter(([object]) => object !== 'person')
-      .map(([object]) => object)
-  };
-
-  try {
-    return await generateDetailedDescription(sceneData);
-  } catch (error) {
-    console.error('Error generating detailed description:', error);
-    
-    const summary = [];
-    summary.push(`Video duration: ${duration.toFixed(1)} seconds\n`);
-
-    const people = Object.entries(objectSummary)
-      .filter(([object]) => object === 'person');
-    const objects = Object.entries(objectSummary)
-      .filter(([object]) => object !== 'person');
-
-    if (people.length > 0) {
-      people.forEach(([_, data]) => {
-        const ageRanges = Array.from(data.ageRanges).join(', ');
-        const expressions = Array.from(data.expressions).join(', ');
-        summary.push(
-          `Person detected from ${data.firstSeen.toFixed(1)}s to ${data.lastSeen.toFixed(1)}s` +
-          (ageRanges ? ` (age: ${ageRanges})` : '') +
-          (expressions ? ` (expressions: ${expressions})` : '')
-        );
-      });
-    }
-
-    if (objects.length > 0) {
-      summary.push('\nObjects detected:');
-      objects.forEach(([object, data]) => {
-        summary.push(`- ${object}: seen ${data.count} times, first at ${data.firstSeen.toFixed(1)}s`);
-      });
-    }
-
-    return summary.join('\n');
-  }
 }
