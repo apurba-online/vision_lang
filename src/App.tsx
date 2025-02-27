@@ -4,9 +4,14 @@ import Webcam from 'react-webcam';
 import { 
   Upload, Camera, Play, Pause, MessageSquare, Loader2, 
   Menu, X, Video, Sun, Moon, Upload as UploadIcon,
-  Settings, Info, Github, FlipHorizontal, Bug, Terminal
+  Settings, Info, Github, FlipHorizontal, Bug, Terminal,
+  CameraOff, LineChart, Gauge, ArrowDown
 } from 'lucide-react';
 import { loadModel, analyzeVideo, analyzeFrame, type PersonAnnotation } from './utils/model';
+import { TrainingTab } from './components/TrainingTab';
+import { TestingTab } from './components/TestingTab';
+import { FaceAnalysisTab } from './components/FaceAnalysisTab';
+import { useTypewriter } from './hooks/useTypewriter';
 
 type AnalysisMode = 'upload' | 'camera';
 type VideoSource = string | null;
@@ -19,12 +24,19 @@ type DebugInfo = {
   lastUpdate: string;
 };
 
+type AnalysisMessage = {
+  id: string;
+  text: string;
+  timestamp: Date;
+};
+
 function App() {
   const [mode, setMode] = useState<AnalysisMode>('camera');
   const [videoSource, setVideoSource] = useState<VideoSource>(null);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [analysis, setAnalysis] = useState<string>('');
+  const [analysisMessages, setAnalysisMessages] = useState<AnalysisMessage[]>([]);
   const [annotations, setAnnotations] = useState<PersonAnnotation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
@@ -33,6 +45,9 @@ function App() {
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [isMobile, setIsMobile] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+  const [activeTab, setActiveTab] = useState<'camera' | 'training' | 'testing' | 'face'>('camera');
+  const [autoScroll, setAutoScroll] = useState(true);
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({
     hasFrame: false,
     frameSize: 0,
@@ -53,8 +68,11 @@ function App() {
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const webcamRef = React.useRef<Webcam>(null);
 
+  const { displayedText, isTyping, containerRef, reset: resetTypewriter } = useTypewriter(analysis, 20, autoScroll);
+
   const clearAnalysis = useCallback(() => {
     setAnalysis('');
+    setAnalysisMessages([]);
     setAnnotations([]);
     if (analysisLoopRef.current) {
       cancelAnimationFrame(analysisLoopRef.current);
@@ -63,6 +81,17 @@ function App() {
     isAnalyzingRef.current = false;
     lastAnalysisTimeRef.current = 0;
   }, []);
+
+  const addAnalysisMessage = useCallback((text: string) => {
+    const newMessage: AnalysisMessage = {
+      id: Date.now().toString(),
+      text,
+      timestamp: new Date()
+    };
+    setAnalysisMessages(prev => [...prev, newMessage]);
+    setAnalysis(text);
+    resetTypewriter();
+  }, [resetTypewriter]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -80,6 +109,14 @@ function App() {
 
   const toggleCamera = () => {
     setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+  };
+
+  const toggleCameraEnabled = () => {
+    setIsCameraEnabled(prev => !prev);
+    if (isRecording) {
+      setIsRecording(false);
+      clearAnalysis();
+    }
   };
 
   useEffect(() => {
@@ -136,7 +173,7 @@ function App() {
     setIsLoading(true);
     try {
       const result = await analyzeVideo(videoFile);
-      setAnalysis(result);
+      addAnalysisMessage(result);
     } catch (error) {
       setError('Error analyzing video. Please try again.');
       console.error(error);
@@ -159,10 +196,10 @@ function App() {
 
     try {
       const result = await analyzeFrame(webcamRef.current.video);
-      if (isAnalyzingRef.current) { // Only update if still recording
-        setAnalysis(result.commentary);
+      if (result && isAnalyzingRef.current) {
+        addAnalysisMessage(result.commentary);
         setAnnotations(result.annotations || []);
-        
+
         setDebugInfo({
           hasFrame: !!result.frame,
           frameSize: result.frame?.length || 0,
@@ -185,14 +222,14 @@ function App() {
 
   const toggleRecording = () => {
     if (!isRecording) {
-      clearAnalysis(); // Clear before starting new recording
+      clearAnalysis();
       setIsRecording(true);
       isAnalyzingRef.current = true;
       lastAnalysisTimeRef.current = 0;
       analyzeWebcamFrame();
     } else {
       setIsRecording(false);
-      clearAnalysis(); // Clear when stopping recording
+      clearAnalysis();
     }
   };
 
@@ -309,6 +346,62 @@ function App() {
 
                 {/* Menu Items */}
                 <div className="space-y-2">
+                  <button
+                    onClick={() => {
+                      setActiveTab('camera');
+                      setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition text-left ${
+                      activeTab === 'camera'
+                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <Camera size={18} className={activeTab === 'camera' ? 'text-blue-500' : 'text-gray-500'} />
+                    <span>Camera View</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('face');
+                      setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition text-left ${
+                      activeTab === 'face'
+                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <Video size={18} className={activeTab === 'face' ? 'text-blue-500' : 'text-gray-500'} />
+                    <span>Face Analysis</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('training');
+                      setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition text-left ${
+                      activeTab === 'training'
+                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <LineChart size={18} className={activeTab === 'training' ? 'text-blue-500' : 'text-gray-500'} />
+                    <span>Training Dashboard</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActiveTab('testing');
+                      setIsSidebarOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition text-left ${
+                      activeTab === 'testing'
+                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-800/50'
+                    }`}
+                  >
+                    <Gauge size={18} className={activeTab === 'testing' ? 'text-blue-500' : 'text-gray-500'} />
+                    <span>Test Model</span>
+                  </button>
                   <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
                     <Settings size={18} className="text-gray-500" />
                     <span>Settings</span>
@@ -403,126 +496,193 @@ function App() {
             </div>
           )}
 
-          {/* Responsive Layout Container */}
-          <div className="grid lg:grid-cols-5 gap-6">
-            {/* Video Section */}
-            <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-gray-800">
-              <div className="p-4 h-full flex flex-col">
-                <div ref={videoContainerRef} className="relative flex-1 rounded-xl overflow-hidden">
-                  {mode === 'upload' && videoSource ? (
-                    <div className="h-full flex flex-col">
-                      <video
-                        src={videoSource}
-                        controls
-                        className="w-full h-full object-contain rounded-xl overflow-hidden"
-                      />
-                      <button
-                        onClick={handleQuestionSubmit}
-                        disabled={isLoading}
-                        className="w-full mt-4 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isLoading ? (
-                          <Loader2 size={20} className="animate-spin" />
-                        ) : (
-                          <MessageSquare size={20} />
-                        )}
-                        Analyze Video
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="h-full relative rounded-xl overflow-hidden">
-                      <div className={`${isMobile ? 'h-full aspect-[9/16] object-cover' : ''} h-full`}>
-                        <Webcam
-                          ref={webcamRef}
-                          audio={false}
-                          className="w-full h-full object-fit"
-                          screenshotFormat="image/jpeg"
-                          videoConstraints={{
-                            facingMode,
-                            aspectRatio: 16/9,
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 }
-                          }}
+          {activeTab === 'testing' ? (
+            <TestingTab />
+          ) : activeTab === 'training' ? (
+            <TrainingTab />
+          ) : activeTab === 'face' ? (
+            <FaceAnalysisTab />
+          ) : (
+            /* Camera View */
+            <div className="grid lg:grid-cols-5 gap-6">
+              {/* Video Section */}
+              <div className="lg:col-span-3 bg-white dark:bg-gray-900 rounded-2xl shadow-xl overflow-hidden border border-gray-200 dark:border-gray-800">
+                <div className="p-4 h-full flex flex-col">
+                  <div ref={videoContainerRef} className="relative flex-1 rounded-xl overflow-hidden">
+                    {mode === 'upload' && videoSource ? (
+                      <div className="h-full flex flex-col">
+                        <video
+                          src={videoSource}
+                          controls
+                          className="w-full h-full object-contain rounded-xl overflow-hidden"
                         />
-                      </div>
-                      <div className="absolute bottom-4 right-4 flex gap-2">
                         <button
-                          onClick={toggleCamera}
-                          className="p-3 rounded-full bg-gray-900/80 hover:bg-gray-800 text-white transition backdrop-blur-sm"
-                          title="Switch Camera"
+                          onClick={handleQuestionSubmit}
+                          disabled={isLoading}
+                          className="w-full mt-4 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          <FlipHorizontal size={20} />
-                        </button>
-                        <button
-                          onClick={toggleRecording}
-                          className={`p-3 rounded-full transition backdrop-blur-sm ${
-                            isRecording 
-                              ? 'bg-red-600 hover:bg-red-700' 
-                              : 'bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600'
-                          } text-white`}
-                        >
-                          {isRecording ? <Pause size={20} /> : <Play size={20} />}
+                          {isLoading ? (
+                            <Loader2 size={20} className="animate-spin" />
+                          ) : (
+                            <MessageSquare size={20} />
+                          )}
+                          Analyze Video
                         </button>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Annotation Boxes */}
-                  {annotations.map((annotation, index) => {
-                    const [x, y, width, height] = annotation.bbox;
-                    const containerRect = videoContainerRef.current?.getBoundingClientRect();
-                    if (!containerRect) return null;
-
-                    const scaleX = containerRect.width / (webcamRef.current?.video?.videoWidth || 1);
-                    const scaleY = containerRect.height / (webcamRef.current?.video?.videoHeight || 1);
-
-                    return (
-                      <div
-                        key={index}
-                        className="absolute pointer-events-none"
-                        style={{
-                          left: `${x * scaleX}px`,
-                          top: `${y * scaleY}px`,
-                          width: `${width * scaleX}px`,
-                          height: `${height * scaleY}px`,
-                          border: '2px solid #3b82f6',
-                          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                          borderRadius: '0.5rem'
-                        }}
-                      >
-                        <div className="absolute -top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-2 py-1 rounded-lg text-xs whitespace-nowrap">
-                          {renderAnnotationLabel(annotation)}
+                    ) : (
+                      <div className="h-full relative rounded-xl overflow-hidden">
+                        <div className={`${isMobile ? 'h-full aspect-[9/16] object-cover' : ''} h-full`}>
+                          {isCameraEnabled ? (
+                            <Webcam
+                              ref={webcamRef}
+                              audio={false}
+                              className="w-full h-full object-fit"
+                              screenshotFormat="image/jpeg"
+                              videoConstraints={{
+                                facingMode,
+                                aspectRatio: 16/9,
+                                width: { ideal: 1920 },
+                                height: { ideal: 1080 }
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-900">
+                              <CameraOff size={48} className="text-gray-600" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="absolute bottom-4 right-4 flex gap-2">
+                          <button
+                            onClick={toggleCameraEnabled}
+                            className="p-3 rounded-full bg-gray-900/80 hover:bg-gray-800 text-white transition backdrop-blur-sm"
+                            title={isCameraEnabled ? "Turn Off Camera" : "Turn On Camera"}
+                          >
+                            {isCameraEnabled ? <CameraOff size={20} /> : <Camera size={20} />}
+                          </button>
+                          {isCameraEnabled && (
+                            <>
+                              <button
+                                onClick={toggleCamera}
+                                className="p-3 rounded-full bg-gray-900/80 hover:bg-gray-800 text-white transition backdrop-blur-sm"
+                                title="Switch Camera"
+                              >
+                                <FlipHorizontal size={20} />
+                              </button>
+                              <button
+                                onClick={toggleRecording}
+                                className={`p-3 rounded-full transition backdrop-blur-sm ${
+                                  isRecording 
+                                    ? 'bg-red-600 hover:bg-red-700' 
+                                    : 'bg-blue-600 hover:bg-blue-700'
+                                } text-white`}
+                              >
+                                {isRecording ? <Pause size={20} /> : <Play size={20} />}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
-                    );
-                  })}
+                    )}
+
+                    {/* Annotation Boxes */}
+                    {annotations.map((annotation, index) => {
+                      const [x, y, width, height] = annotation.bbox;
+                      const containerRect = videoContainerRef.current?.getBoundingClientRect();
+                      if (!containerRect) return null;
+
+                      const scaleX = containerRect.width / (webcamRef.current?.video?.videoWidth || 1);
+                      const scaleY = containerRect.height / (webcamRef.current?.video?.videoHeight || 1);
+
+                      return (
+                        <div
+                          key={index}
+                          className="absolute pointer-events-none"
+                          style={{
+                            left: `${x * scaleX}px`,
+                            top: `${y * scaleY}px`,
+                            width: `${width * scaleX}px`,
+                            height: `${height * scaleY}px`,
+                            border: '2px solid #3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderRadius: '0.5rem'
+                          }}
+                        >
+                          <div className="absolute -top-8 left-0 bg-blue-600 dark:bg-blue-500 text-white px-2 py-1 rounded-lg text-xs whitespace-nowrap">
+                            {renderAnnotationLabel(annotation)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Analysis Section */}
+              <div className={`lg:col-span-2 ${isMobile ? 'h-[50vh]' : 'h-[calc(100vh-8rem)]'}`}>
+                <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800 flex flex-col">
+                  <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
+                      Analysis Results
+                      {isTyping && (
+                        <span className="w-2 h-4 bg-blue-500 animate-pulse rounded-sm" />
+                      )}
+                    </h3>
+                    <button
+                      onClick={() => setAutoScroll(!autoScroll)}
+                      className={`p-2 rounded-lg transition flex items-center gap-2 text-sm ${
+                        autoScroll
+                          ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+                      }`}
+                      title={autoScroll ? "Disable Auto-scroll" : "Enable Auto-scroll"}
+                    >
+                      <ArrowDown size={16} />
+                      {autoScroll ? 'Auto-scroll On' : 'Auto-scroll Off'}
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <div 
+                      ref={containerRef}
+                      className="h-full overflow-y-auto scrollbar-thin space-y-4"
+                      onScroll={autoScroll ? undefined : (e) => {
+                        const target = e.target as HTMLDivElement;
+                        const isAtBottom = target.scrollHeight - target.scrollTop === target.clientHeight;
+                        if (isAtBottom) {
+                          setAutoScroll(true);
+                        }
+                      }}
+                    >
+                      {analysisMessages.map((message, index) => (
+                        <div key={message.id} className="space-y-2">
+                          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-blue-600 dark:text-blue-400 text-xs">
+                            {message.timestamp.toLocaleString('en-US ', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              hour12: true
+                            })}
+                          </div>
+                          <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl">
+                            <p className="whitespace-pre-wrap text-sm leading-relaxed font-mono">
+                              {index === analysisMessages.length - 1 ? displayedText : message.text}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      {analysisMessages.length === 0 && (
+                        <div className="h-full flex items-center justify-center text-gray-400 dark:text-gray-600">
+                          <p className="text-sm">Tap play button to start analysis</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-
-            {/* Analysis Section */}
-            <div className={`lg:col-span-2 ${isMobile ? 'h-[50vh]' : 'h-[calc(100vh-8rem)]'}`}>
-              <div className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-xl h-full border border-gray-200 dark:border-gray-800 flex flex-col">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 flex-shrink-0">
-                  <MessageSquare size={20} className="text-blue-600 dark:text-blue-500" />
-                  Analysis Results
-                </h3>
-                {analysis ? (
-                  <div className="flex-1 min-h-0">
-                    <div className="h-full overflow-y-auto scrollbar-thin">
-                      <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl">
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed">{analysis}</p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex-1 flex items-center justify-center text-gray-400 dark:text-gray-600">
-                    <p className="text-sm">Start recording or upload a video to see analysis</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </main>
     </div>
