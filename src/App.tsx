@@ -656,14 +656,7 @@ function App() {
                       {analysisMessages.map((message, index) => (
                         <div key={message.id} className="space-y-2">
                           <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 text-blue-600 dark:text-blue-400 text-xs">
-                            {message.timestamp.toLocaleString('en-US ', {
-                              day: '2-digit',
-                              month: 'short',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              hour12: true
-                            })}
+                            {message.timestamp.toLocaleTimeString()}
                           </div>
                           <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl">
                             <p className="whitespace-pre-wrap text-sm leading-relaxed font-mono">
