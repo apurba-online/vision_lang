@@ -1,6 +1,9 @@
-import React, { useState, useRef } from 'react';
-import { Upload, Play, AlertCircle, Video, X, Gauge } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, Play, AlertCircle, Video, X, Gauge, Camera, CameraOff, FlipHorizontal, Pause } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
+import Webcam from 'react-webcam';
+import * as tf from '@tensorflow/tfjs';
+import * as cocoSsd from '@tensorflow-models/coco-ssd';
 import { loadTrainedModel } from '../utils/train';
 import { processVideoForPrediction } from '../utils/dataCollection';
 
@@ -29,8 +32,42 @@ export function TestingTab() {
   const [error, setError] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<PredictionResult[]>([]);
   const [currentPrediction, setCurrentPrediction] = useState<PredictionResult | null>(null);
+  const [mode, setMode] = useState<'upload' | 'webcam'>('upload');
+  const [isCameraEnabled, setIsCameraEnabled] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
+  const [fps, setFps] = useState<number>(0);
+  const [isModelLoading, setIsModelLoading] = useState(false);
+  const [webcamReady, setWebcamReady] = useState(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
+  const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number>();
+  const lastFrameTimeRef = useRef<number>(0);
+  const modelRef = useRef<tf.LayersModel | null>(null);
+  const cocoModelRef = useRef<cocoSsd.ObjectDetection | null>(null);
+
+  // Initialize TensorFlow.js
+  useEffect(() => {
+    const initTf = async () => {
+      try {
+        await tf.ready();
+        console.log('TensorFlow.js initialized successfully');
+      } catch (err) {
+        console.error('Error initializing TensorFlow.js:', err);
+        setError('Failed to initialize TensorFlow.js. Please check your browser compatibility.');
+      }
+    };
+    
+    initTf();
+    
+    // Cleanup function
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, []);
 
   const onDrop = async (acceptedFiles: File[]) => {
     setError(null);
@@ -87,18 +124,198 @@ export function TestingTab() {
     }
   };
 
-  const drawDetections = (prediction: PredictionResult) => {
-    if (!canvasRef.current || !videoRef.current) return;
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'user' ? 'environment' : 'user');
+    setWebcamReady(false);
+  };
 
+  const toggleCameraEnabled = () => {
+    setIsCameraEnabled(prev => !prev);
+    if (isAnalyzing) {
+      stopWebcamAnalysis();
+    }
+    setWebcamReady(false);
+  };
+
+  const handleWebcamReady = () => {
+    console.log('Webcam is ready');
+    setWebcamReady(true);
+  };
+
+  const loadModels = async () => {
+    setIsModelLoading(true);
+    setError(null);
+    
+    try {
+      // Load violence detection model
+      if (!modelRef.current) {
+        console.log('Loading violence detection model...');
+        const model = await loadTrainedModel();
+        if (!model) {
+          throw new Error('No trained model found. Please train the model first.');
+        }
+        modelRef.current = model;
+        console.log('Violence detection model loaded successfully');
+      }
+      
+      // Load COCO-SSD model for person detection
+      if (!cocoModelRef.current) {
+        console.log('Loading COCO-SSD model...');
+        const cocoModel = await cocoSsd.load({
+          base: 'lite_mobilenet_v2'
+        });
+        cocoModelRef.current = cocoModel;
+        console.log('COCO-SSD model loaded successfully');
+      }
+      
+      return true;
+    } catch (err) {
+      console.error('Error loading models:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load models');
+      return false;
+    } finally {
+      setIsModelLoading(false);
+    }
+  };
+
+  const startWebcamAnalysis = async () => {
+    if (!webcamRef.current?.video || isAnalyzing || !webcamReady) {
+      if (!webcamReady) {
+        setError('Webcam is not ready yet. Please wait a moment and try again.');
+      }
+      return;
+    }
+    
+    setIsAnalyzing(true);
+    setError(null);
+    setPredictions([]);
+    
+    try {
+      // Load models if not already loaded
+      const modelsLoaded = await loadModels();
+      if (!modelsLoaded) {
+        throw new Error('Failed to load required models');
+      }
+      
+      // Start the analysis loop
+      lastFrameTimeRef.current = performance.now();
+      analyzeWebcamFrame();
+    } catch (err) {
+      console.error('Error starting webcam analysis:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred during analysis');
+      setIsAnalyzing(false);
+    }
+  };
+  
+  const stopWebcamAnalysis = () => {
+    setIsAnalyzing(false);
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = undefined;
+    }
+  };
+
+  const analyzeWebcamFrame = async () => {
+    if (!webcamRef.current?.video || !isAnalyzing || !modelRef.current || !cocoModelRef.current) {
+      stopWebcamAnalysis();
+      return;
+    }
+    
+    const now = performance.now();
+    const elapsed = now - lastFrameTimeRef.current;
+    const currentFps = 1000 / elapsed;
+    setFps(currentFps);
+    
+    try {
+      // Make sure video is ready
+      if (webcamRef.current.video.readyState < 2) {
+        console.log('Video not ready yet, waiting...');
+        animationRef.current = requestAnimationFrame(analyzeWebcamFrame);
+        return;
+      }
+      
+      // Process frame with model
+      const frameTensor = tf.tidy(() => {
+        return tf.browser.fromPixels(webcamRef.current!.video!)
+          .resizeBilinear([224, 224])
+          .toFloat()
+          .div(255)
+          .expandDims(0);
+      });
+      
+      // Get person detections using COCO-SSD
+      const detections = await cocoModelRef.current.detect(webcamRef.current.video);
+      const personDetections = detections.filter(d => d.class === 'person');
+      
+      // Get violence prediction
+      const prediction = await modelRef.current.predict(frameTensor) as tf.Tensor;
+      const confidence = prediction.dataSync()[0];
+      const isViolent = confidence > 0.5;
+      
+      frameTensor.dispose();
+      prediction.dispose();
+      
+      const result: PredictionResult = {
+        timestamp: now,
+        isViolent,
+        confidence,
+        detections: personDetections.map(d => ({
+          bbox: d.bbox,
+          label: d.class,
+          score: d.score
+        }))
+      };
+      
+      setPredictions(prev => {
+        // Keep only the last 10 predictions to avoid memory issues
+        const newPredictions = [...prev, result];
+        if (newPredictions.length > 10) {
+          return newPredictions.slice(newPredictions.length - 10);
+        }
+        return newPredictions;
+      });
+      
+      setCurrentPrediction(result);
+      drawDetections(result);
+      
+    } catch (error) {
+      console.warn('Frame processing error:', error);
+    }
+    
+    lastFrameTimeRef.current = now;
+    
+    // Continue the loop if still analyzing
+    if (isAnalyzing) {
+      animationRef.current = requestAnimationFrame(analyzeWebcamFrame);
+    }
+  };
+
+  const drawDetections = (prediction: PredictionResult) => {
+    if (!canvasRef.current) return;
+    
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
+
+    // Get the video element to match dimensions
+    const videoElement = mode === 'upload' ? videoRef.current : webcamRef.current?.video;
+    if (!videoElement) return;
+
+    // Set canvas dimensions to match video
+    if (canvasRef.current.width !== videoElement.videoWidth || 
+        canvasRef.current.height !== videoElement.videoHeight) {
+      canvasRef.current.width = videoElement.videoWidth;
+      canvasRef.current.height = videoElement.videoHeight;
+    }
 
     // Clear previous drawings
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
-    // Set canvas dimensions to match video
-    canvasRef.current.width = videoRef.current.videoWidth;
-    canvasRef.current.height = videoRef.current.videoHeight;
+    // Draw FPS counter for webcam mode
+    if (mode === 'webcam' && isAnalyzing) {
+      ctx.font = 'small-caps 20px "Segoe UI"';
+      ctx.fillStyle = 'white';
+      ctx.fillText(`FPS: ${fps.toFixed(1)}`, 10, 25);
+    }
 
     // Draw bounding boxes
     prediction.detections.forEach(detection => {
@@ -140,70 +357,222 @@ export function TestingTab() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Mode Toggle */}
+      <div className="flex justify-center mb-4">
+        <div className="inline-flex rounded-md shadow-sm" role="group">
+          <button
+            type="button"
+            onClick={() => {
+              setMode('upload');
+              stopWebcamAnalysis();
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-l-lg ${
+              mode === 'upload'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Upload size={16} />
+              <span>Upload Video</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('webcam');
+              if (testVideo) {
+                URL.revokeObjectURL(videoRef.current?.src || '');
+                setTestVideo(null);
+              }
+            }}
+            className={`px-4 py-2 text-sm font-medium rounded-r-lg ${
+              mode === 'webcam'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Camera size={16} />
+              <span>Live Camera</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Video Upload Section */}
+        {/* Video Upload/Webcam Section */}
         <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-800">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Video className="w-5 h-5 text-blue-500" />
-            Test Video
+            {mode === 'upload' ? (
+              <>
+                <Video className="w-5 h-5 text-blue-500" />
+                Test Video
+              </>
+            ) : (
+              <>
+                <Camera className="w-5 h-5 text-blue-500" />
+                Live Camera
+              </>
+            )}
           </h3>
           
-          {!testVideo ? (
-            <div
-              {...getRootProps()}
-              className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${
-                isDragActive 
-                  ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-500/10' 
-                  : 'border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600'
-              }`}
-            >
-              <input {...getInputProps()} />
-              <Upload className="mx-auto mb-4 text-gray-400 dark:text-gray-500" size={48} />
-              <p className="text-sm mb-2">
-                {isDragActive
-                  ? 'Drop the video here'
-                  : 'Drag & drop a video file here, or click to select'}
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Supports MP4, WebM, MOV, MKV, and AVI formats (max 100MB)
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <Video className="w-4 h-4 text-blue-500" />
-                  <span className="text-sm truncate">{testVideo.name}</span>
+          {mode === 'upload' ? (
+            !testVideo ? (
+              <div
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition ${
+                  isDragActive 
+                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-500/10' 
+                    : 'border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-600'
+                }`}
+              >
+                <input {...getInputProps()} />
+                <Upload className="mx-auto mb-4 text-gray-400 dark:text-gray-500" size={48} />
+                <p className="text-sm mb-2">
+                  {isDragActive
+                    ? 'Drop the video here'
+                    : 'Drag & drop a video file here, or click to select'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Supports MP4, WebM, MOV, MKV, and AVI formats (max 100MB)
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Video className="w-4 h-4 text-blue-500" />
+                    <span className="text-sm truncate">{testVideo.name}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setTestVideo(null);
+                      setPredictions([]);
+                      setCurrentPrediction(null);
+                    }}
+                    className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
+
                 <button
-                  onClick={() => {
-                    setTestVideo(null);
-                    setPredictions([]);
-                    setCurrentPrediction(null);
-                  }}
-                  className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full"
+                  onClick={startAnalysis}
+                  disabled={isAnalyzing}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <X size={16} />
+                  {isAnalyzing ? (
+                    <>
+                      <Gauge className="animate-spin" size={18} />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Play size={18} />
+                      Start Analysis
+                    </>
+                  )}
                 </button>
               </div>
-
-              <button
-                onClick={startAnalysis}
-                disabled={isAnalyzing}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isAnalyzing ? (
+            )
+          ) : (
+            <div className="space-y-4">
+              <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+                {isCameraEnabled ? (
                   <>
-                    <Gauge className="animate-spin" size={18} />
-                    Analyzing...
+                    <Webcam
+                      ref={webcamRef}
+                      audio={false}
+                      className="w-full h-full object-cover"
+                      screenshotFormat="image/jpeg"
+                      videoConstraints={{
+                        facingMode,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                      }}
+                      onUserMedia={handleWebcamReady}
+                    />
+                    <canvas
+                      ref={canvasRef}
+                      className="absolute inset-0 w-full h-full pointer-events-none"
+                    />
+                    {isAnalyzing && (
+                      <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-1.5 text-white text-sm">
+                        FPS: {fps.toFixed(1)}
+                      </div>
+                    )}
                   </>
                 ) : (
-                  <>
-                    <Play size={18} />
-                    Start Analysis
-                  </>
+                  <div className="w-full h-full flex items-center justify-center">
+                    <CameraOff size={48} className="text-gray-600" />
+                  </div>
                 )}
-              </button>
+                
+                {/* Camera controls */}
+                <div className="absolute bottom-4 right-4 flex gap-2">
+                  <button
+                    onClick={toggleCameraEnabled}
+                    className="p-3 rounded-full bg-gray-900/80 hover:bg-gray-800 text-white transition backdrop-blur-sm"
+                    title={isCameraEnabled ? "Turn Off Camera" : "Turn On Camera"}
+                  >
+                    {isCameraEnabled ? <CameraOff size={20} /> : <Camera size={20} />}
+                  </button>
+                  {isCameraEnabled && (
+                    <>
+                      <button
+                        onClick={toggleCamera}
+                        className="p-3 rounded-full bg-gray-900/80 hover:bg-gray-800 text-white transition backdrop-blur-sm"
+                        title="Switch Camera"
+                      >
+                        <FlipHorizontal size={20} />
+                      </button>
+                      <button
+                        onClick={isAnalyzing ? stopWebcamAnalysis : startWebcamAnalysis}
+                        disabled={isModelLoading || !webcamReady}
+                        className={`p-3 rounded-full transition backdrop-blur-sm ${
+                          isAnalyzing 
+                            ? 'bg-red-600 hover:bg-red-700' 
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        } text-white disabled:opacity-50 disabled:cursor-not-allowed`}
+                      >
+                        {isModelLoading ? (
+                          <Gauge className="animate-spin" size={20} />
+                        ) : isAnalyzing ? (
+                          <Pause size={20} />
+                        ) : (
+                          <Play size={20} />
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+              
+              {isCameraEnabled && !isAnalyzing && (
+                <button
+                  onClick={startWebcamAnalysis}
+                  disabled={isModelLoading || !webcamReady}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isModelLoading ? (
+                    <>
+                      <Gauge className="animate-spin" size={18} />
+                      Loading Models...
+                    </>
+                  ) : !webcamReady ? (
+                    <>
+                      <Gauge className="animate-spin" size={18} />
+                      Initializing Camera...
+                    </>
+                  ) : (
+                    <>
+                      <Play size={18} />
+                      Start Live Analysis
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           )}
 
@@ -243,7 +612,7 @@ export function TestingTab() {
                     >
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">
-                          Frame {index + 1} ({(prediction.timestamp / 1000).toFixed(2)}s)
+                          Frame {index + 1} {mode === 'upload' ? `(${(prediction.timestamp / 1000).toFixed(2)}s)` : ''}
                         </span>
                         <span className="text-sm">
                           Confidence: {Math.round(prediction.confidence * 100)}%
@@ -265,22 +634,24 @@ export function TestingTab() {
         </div>
       </div>
 
-      {/* Video Preview */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-800">
-        <h3 className="text-lg font-semibold mb-4">Video Preview</h3>
-        <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-          <video
-            ref={videoRef}
-            className="absolute inset-0 w-full h-full"
-            controls
-            crossOrigin="anonymous"
-          />
-          <canvas
-            ref={canvasRef}
-            className="absolute inset-0 w-full h-full pointer-events-none"
-          />
+      {/* Video Preview - Only show for upload mode */}
+      {mode === 'upload' && (
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 shadow-lg border border-gray-200 dark:border-gray-800">
+          <h3 className="text-lg font-semibold mb-4">Video Preview</h3>
+          <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
+            <video
+              ref={videoRef}
+              className="absolute inset-0 w-full h-full"
+              controls
+              crossOrigin="anonymous"
+            />
+            <canvas
+              ref={canvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

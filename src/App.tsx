@@ -10,7 +10,6 @@ import {
 import { loadModel, analyzeVideo, analyzeFrame, type PersonAnnotation } from './utils/model';
 import { TrainingTab } from './components/TrainingTab';
 import { TestingTab } from './components/TestingTab';
-import { FaceAnalysisTab } from './components/FaceAnalysisTab';
 import { useTypewriter } from './hooks/useTypewriter';
 
 type AnalysisMode = 'upload' | 'camera';
@@ -46,7 +45,7 @@ function App() {
   const [isMobile, setIsMobile] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [isCameraEnabled, setIsCameraEnabled] = useState(false);
-  const [activeTab, setActiveTab] = useState<'camera' | 'training' | 'testing' | 'face'>('camera');
+  const [activeTab, setActiveTab] = useState<'camera' | 'training' | 'testing'>('camera');
   const [autoScroll, setAutoScroll] = useState(true);
   const [debugInfo, setDebugInfo] = useState<DebugInfo>({
     hasFrame: false,
@@ -362,20 +361,6 @@ function App() {
                   </button>
                   <button
                     onClick={() => {
-                      setActiveTab('face');
-                      setIsSidebarOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition text-left ${
-                      activeTab === 'face'
-                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                        : 'hover:bg-gray-100 dark:hover:bg-gray-800/50'
-                    }`}
-                  >
-                    <Video size={18} className={activeTab === 'face' ? 'text-blue-500' : 'text-gray-500'} />
-                    <span>Face Analysis</span>
-                  </button>
-                  <button
-                    onClick={() => {
                       setActiveTab('training');
                       setIsSidebarOpen(false);
                     }}
@@ -402,7 +387,7 @@ function App() {
                     <Gauge size={18} className={activeTab === 'testing' ? 'text-blue-500' : 'text-gray-500'} />
                     <span>Test Model</span>
                   </button>
-                  <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
+                  {/* <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
                     <Settings size={18} className="text-gray-500" />
                     <span>Settings</span>
                   </button>
@@ -413,7 +398,7 @@ function App() {
                   <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
                     <Info size={18} className="text-gray-500" />
                     <span>About</span>
-                  </button>
+                  </button> */}
                   <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 transition text-left">
                     <Github size={18} className="text-gray-500" />
                     <span>GitHub</span>
@@ -500,8 +485,6 @@ function App() {
             <TestingTab />
           ) : activeTab === 'training' ? (
             <TrainingTab />
-          ) : activeTab === 'face' ? (
-            <FaceAnalysisTab />
           ) : (
             /* Camera View */
             <div className="grid lg:grid-cols-5 gap-6">

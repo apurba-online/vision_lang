@@ -1,0 +1,43 @@
+{
+  "metadata": {
+    "description": "Violence Detection Training Dataset",
+    "version": "1.0",
+    "created": "2024-03-15",
+    "classes": ["violent", "non-violent"]
+  },
+  "samples": [
+    {
+      "id": "sample_001",
+      "boxes": [[100, 100, 200, 200], [300, 300, 400, 400]],
+      "labels": ["person", "person"],
+      "isViolent": true,
+      "features": {
+        "motion_intensity": 0.85,
+        "proximity": 0.9,
+        "sudden_movements": true
+      }
+    },
+    {
+      "id": "sample_002",
+      "boxes": [[150, 150, 250, 250]],
+      "labels": ["person"],
+      "isViolent": false,
+      "features": {
+        "motion_intensity": 0.2,
+        "proximity": 0.1,
+        "sudden_movements": false
+      }
+    },
+    {
+      "id": "sample_003",
+      "boxes": [[200, 200, 300, 300], [400, 400, 500, 500]],
+      "labels": ["person", "person"],
+      "isViolent": true,
+      "features": {
+        "motion_intensity": 0.95,
+        "proximity": 0.8,
+        "sudden_movements": true
+      }
+    }
+  ]
+}

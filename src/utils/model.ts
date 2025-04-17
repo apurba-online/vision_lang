@@ -143,11 +143,11 @@ function captureFrame(videoElement: HTMLVideoElement): string | null {
 function estimateAgeRange(height: number): string {
   if (height < window.innerHeight * 0.15) return '20-30';
   if (height < window.innerHeight * 0.25) return '30-40';
-  return '25-35';
+  return 'Young';
 }
 
 function estimateExpression(bbox: number[]): string {
-  const expressions = ['neutral', 'focused', 'happy', 'angry', 'sad', 'crying', 'laughing'];
+  const expressions = ['neutral', 'focused', 'happy'];
   return expressions[Math.floor(Math.random() * expressions.length)];
 }
 

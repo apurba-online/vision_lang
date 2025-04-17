@@ -145,7 +145,7 @@ export async function generateDetailedDescription(sceneData: {
               6. Movement and action
               7. General mood of the scene
               
-              If there is anything concering write that too. Report it like a journalist. No bullet points or bold words. (Within 100 to 150 words.)`;
+              If there is anything concerning write that too. Report it like a journalist. No bullet points or bold words. (Within 100 to 150 words.)`;
 
         const response = await openai.chat.completions.create({
           model: "gpt-4o",
@@ -176,7 +176,7 @@ export async function generateDetailedDescription(sceneData: {
         
         const description = response.choices[0]?.message?.content || "Unable to analyze scene.";
         RATE_LIMIT.currentTokens += Math.ceil(description.length / 3);
-        resolve(description);
+        resolve(description.trim()); // Keep trim() to remove any trailing whitespace
       } catch (error) {
         console.error('GPT-4o API error:', error);
         resolve(generateBasicDescription(sceneData));
@@ -243,5 +243,5 @@ function generateBasicDescription(sceneData: {
     descriptions.push(`The scene contains ${sceneData.objects.join(', ')}.`);
   }
 
-  return descriptions.join(' ');
+  return descriptions.join(' ').trim(); // Keep trim() to remove any trailing whitespace
 }
