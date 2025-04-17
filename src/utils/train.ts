@@ -85,15 +85,26 @@ function createCustomModel(): tf.LayersModel {
 async function createMockModel(): Promise<tf.LayersModel> {
   const model = createCustomModel();
   
-  // Compile the model
+  // Compile the model with appropriate loss and metrics
   model.compile({
-    optimizer: 'adam',
+    optimizer: tf.train.adam(0.0001),
     loss: 'binaryCrossentropy',
     metrics: ['accuracy']
   });
   
-  // Initialize with random weights
-  await model.predict(tf.zeros([1, 224, 224, 3]));
+  // Generate some random weights to simulate a trained model
+  const dummyData = tf.randomNormal([10, 224, 224, 3]);
+  const dummyLabels = tf.randomUniform([10, 1]);
+  
+  // Train the model with dummy data for one epoch
+  await model.fit(dummyData, dummyLabels, {
+    epochs: 1,
+    batchSize: 2
+  });
+  
+  // Clean up tensors
+  dummyData.dispose();
+  dummyLabels.dispose();
   
   return model;
 }

@@ -42,12 +42,12 @@ export function TestingTab() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
-  const lastFrameTimeRef = useRef<number>(0);
   const modelRef = useRef<tf.LayersModel | null>(null);
   const cocoModelRef = useRef<cocoSsd.ObjectDetection | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const fpsIntervalRef = useRef<number | null>(null);
+  const frameCountRef = useRef<number>(0);
 
-  // Initialize TensorFlow.js
   useEffect(() => {
     const initTf = async () => {
       try {
@@ -61,10 +61,12 @@ export function TestingTab() {
     
     initTf();
     
-    // Cleanup function
     return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
+      if (fpsIntervalRef.current) {
+        clearInterval(fpsIntervalRef.current);
       }
     };
   }, []);
@@ -106,20 +108,18 @@ export function TestingTab() {
       videoRef.current.src = URL.createObjectURL(testVideo);
       await videoRef.current.play();
 
-      const results = await processVideoForPrediction(
+      cleanupRef.current = await processVideoForPrediction(
         videoRef.current,
         model,
         (prediction) => {
-          setPredictions(prev => [...prev, prediction]);
+          setPredictions(prev => [...prev.slice(-99), prediction]);
           setCurrentPrediction(prediction);
           drawDetections(prediction);
+          frameCountRef.current++;
         }
       );
-
-      console.log('Analysis complete:', results);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred during analysis');
-    } finally {
       setIsAnalyzing(false);
     }
   };
@@ -147,25 +147,19 @@ export function TestingTab() {
     setError(null);
     
     try {
-      // Load violence detection model
       if (!modelRef.current) {
-        console.log('Loading violence detection model...');
         const model = await loadTrainedModel();
         if (!model) {
           throw new Error('No trained model found. Please train the model first.');
         }
         modelRef.current = model;
-        console.log('Violence detection model loaded successfully');
       }
       
-      // Load COCO-SSD model for person detection
       if (!cocoModelRef.current) {
-        console.log('Loading COCO-SSD model...');
         const cocoModel = await cocoSsd.load({
           base: 'lite_mobilenet_v2'
         });
         cocoModelRef.current = cocoModel;
-        console.log('COCO-SSD model loaded successfully');
       }
       
       return true;
@@ -185,108 +179,53 @@ export function TestingTab() {
       }
       return;
     }
-    
-    setIsAnalyzing(true);
-    setError(null);
-    setPredictions([]);
-    
+
     try {
-      // Load models if not already loaded
       const modelsLoaded = await loadModels();
       if (!modelsLoaded) {
         throw new Error('Failed to load required models');
       }
-      
-      // Start the analysis loop
-      lastFrameTimeRef.current = performance.now();
-      analyzeWebcamFrame();
+
+      setIsAnalyzing(true);
+      setError(null);
+      setPredictions([]);
+      frameCountRef.current = 0;
+
+      // Start FPS counter
+      if (fpsIntervalRef.current) {
+        clearInterval(fpsIntervalRef.current);
+      }
+      fpsIntervalRef.current = window.setInterval(() => {
+        setFps(frameCountRef.current);
+        frameCountRef.current = 0;
+      }, 1000);
+
+      cleanupRef.current = await processVideoForPrediction(
+        webcamRef.current.video,
+        modelRef.current!,
+        (prediction) => {
+          setPredictions(prev => [...prev.slice(-99), prediction]);
+          setCurrentPrediction(prediction);
+          drawDetections(prediction);
+          frameCountRef.current++;
+        }
+      );
     } catch (err) {
       console.error('Error starting webcam analysis:', err);
       setError(err instanceof Error ? err.message : 'An error occurred during analysis');
-      setIsAnalyzing(false);
+      stopWebcamAnalysis();
     }
   };
   
   const stopWebcamAnalysis = () => {
     setIsAnalyzing(false);
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = undefined;
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
     }
-  };
-
-  const analyzeWebcamFrame = async () => {
-    if (!webcamRef.current?.video || !isAnalyzing || !modelRef.current || !cocoModelRef.current) {
-      stopWebcamAnalysis();
-      return;
-    }
-    
-    const now = performance.now();
-    const elapsed = now - lastFrameTimeRef.current;
-    const currentFps = 1000 / elapsed;
-    setFps(currentFps);
-    
-    try {
-      // Make sure video is ready
-      if (webcamRef.current.video.readyState < 2) {
-        console.log('Video not ready yet, waiting...');
-        animationRef.current = requestAnimationFrame(analyzeWebcamFrame);
-        return;
-      }
-      
-      // Process frame with model
-      const frameTensor = tf.tidy(() => {
-        return tf.browser.fromPixels(webcamRef.current!.video!)
-          .resizeBilinear([224, 224])
-          .toFloat()
-          .div(255)
-          .expandDims(0);
-      });
-      
-      // Get person detections using COCO-SSD
-      const detections = await cocoModelRef.current.detect(webcamRef.current.video);
-      const personDetections = detections.filter(d => d.class === 'person');
-      
-      // Get violence prediction
-      const prediction = await modelRef.current.predict(frameTensor) as tf.Tensor;
-      const confidence = prediction.dataSync()[0];
-      const isViolent = confidence > 0.5;
-      
-      frameTensor.dispose();
-      prediction.dispose();
-      
-      const result: PredictionResult = {
-        timestamp: now,
-        isViolent,
-        confidence,
-        detections: personDetections.map(d => ({
-          bbox: d.bbox,
-          label: d.class,
-          score: d.score
-        }))
-      };
-      
-      setPredictions(prev => {
-        // Keep only the last 10 predictions to avoid memory issues
-        const newPredictions = [...prev, result];
-        if (newPredictions.length > 10) {
-          return newPredictions.slice(newPredictions.length - 10);
-        }
-        return newPredictions;
-      });
-      
-      setCurrentPrediction(result);
-      drawDetections(result);
-      
-    } catch (error) {
-      console.warn('Frame processing error:', error);
-    }
-    
-    lastFrameTimeRef.current = now;
-    
-    // Continue the loop if still analyzing
-    if (isAnalyzing) {
-      animationRef.current = requestAnimationFrame(analyzeWebcamFrame);
+    if (fpsIntervalRef.current) {
+      clearInterval(fpsIntervalRef.current);
+      fpsIntervalRef.current = null;
     }
   };
 
@@ -296,63 +235,104 @@ export function TestingTab() {
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    // Get the video element to match dimensions
     const videoElement = mode === 'upload' ? videoRef.current : webcamRef.current?.video;
     if (!videoElement) return;
 
-    // Set canvas dimensions to match video
-    if (canvasRef.current.width !== videoElement.videoWidth || 
-        canvasRef.current.height !== videoElement.videoHeight) {
-      canvasRef.current.width = videoElement.videoWidth;
-      canvasRef.current.height = videoElement.videoHeight;
-    }
+    // Get container dimensions
+    const containerElement = canvasRef.current.parentElement;
+    if (!containerElement) return;
+
+    const containerWidth = containerElement.clientWidth;
+    const containerHeight = containerElement.clientHeight;
+
+    // Set canvas dimensions to match container
+    canvasRef.current.width = containerWidth;
+    canvasRef.current.height = containerHeight;
+
+    // Calculate scale factors
+    const scaleX = containerWidth / videoElement.videoWidth;
+    const scaleY = containerHeight / videoElement.videoHeight;
+    const scale = Math.min(scaleX, scaleY);
+
+    // Calculate centered position
+    const offsetX = (containerWidth - (videoElement.videoWidth * scale)) / 2;
+    const offsetY = (containerHeight - (videoElement.videoHeight * scale)) / 2;
 
     // Clear previous drawings
-    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    ctx.clearRect(0, 0, containerWidth, containerHeight);
 
-    // Draw FPS counter for webcam mode
-    if (mode === 'webcam' && isAnalyzing) {
-      ctx.font = 'small-caps 20px "Segoe UI"';
+    // Draw FPS counter
+    if (isAnalyzing) {
+      ctx.font = 'bold 16px Arial';
       ctx.fillStyle = 'white';
-      ctx.fillText(`FPS: ${fps.toFixed(1)}`, 10, 25);
+      ctx.strokeStyle = 'black';
+      ctx.lineWidth = 3;
+      const fpsText = `FPS: ${fps}`;
+      ctx.strokeText(fpsText, 10, 25);
+      ctx.fillText(fpsText, 10, 25);
     }
 
     // Draw bounding boxes
     prediction.detections.forEach(detection => {
       const [x, y, width, height] = detection.bbox;
       
-      // Set style based on confidence and violence prediction
-      ctx.strokeStyle = prediction.isViolent ? 'red' : 'green';
+      // Scale and offset coordinates
+      const scaledX = (x * scale) + offsetX;
+      const scaledY = (y * scale) + offsetY;
+      const scaledWidth = width * scale;
+      const scaledHeight = height * scale;
+      
+      // Draw box with shadow effect
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 5;
       ctx.lineWidth = 2;
+      ctx.strokeStyle = prediction.isViolent ? 'red' : 'green';
+      ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
       
-      // Draw rectangle
-      ctx.strokeRect(x, y, width, height);
+      // Reset shadow for text
+      ctx.shadowColor = 'transparent';
       
-      // Draw label
-      ctx.fillStyle = prediction.isViolent ? 'red' : 'green';
-      ctx.font = '16px Arial';
-      ctx.fillText(
-        `${detection.label} (${Math.round(detection.score * 100)}%)`,
-        x,
-        y - 5
-      );
+      // Draw background for label
+      const label = `${detection.label} (${Math.round(detection.score * 100)}%)`;
+      const labelWidth = ctx.measureText(label).width + 10;
+      ctx.fillStyle = prediction.isViolent ? 'rgba(255, 0, 0, 0.8)' : 'rgba(0, 128, 0, 0.8)';
+      ctx.fillRect(scaledX, scaledY - 25, labelWidth, 20);
+      
+      // Draw label text
+      ctx.fillStyle = 'white';
+      ctx.font = '14px Arial';
+      ctx.fillText(label, scaledX + 5, scaledY - 10);
     });
 
     // Draw overall prediction
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(10, 10, 200, 60);
-    ctx.fillStyle = prediction.isViolent ? 'red' : 'green';
-    ctx.font = 'bold 16px Arial';
-    ctx.fillText(
-      `Violence: ${prediction.isViolent ? 'Detected' : 'Not Detected'}`,
-      20,
-      35
-    );
-    ctx.fillText(
-      `Confidence: ${Math.round(prediction.confidence * 100)}%`,
-      20,
-      55
-    );
+    if (prediction.detections.length > 0) {
+      const boxWidth = 200;
+      const boxHeight = 60;
+      const margin = 10;
+      
+      // Draw background box
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(
+        containerWidth - boxWidth - margin,
+        margin,
+        boxWidth,
+        boxHeight
+      );
+      
+      // Draw prediction text
+      ctx.fillStyle = prediction.isViolent ? 'red' : 'green';
+      ctx.font = 'bold 16px Arial';
+      ctx.fillText(
+        `Violence: ${prediction.isViolent ? 'Detected' : 'Not Detected'}`,
+        containerWidth - boxWidth - margin + 10,
+        margin + 25
+      );
+      ctx.fillText(
+        `Confidence: ${Math.round(prediction.confidence * 100)}%`,
+        containerWidth - boxWidth - margin + 10,
+        margin + 45
+      );
+    }
   };
 
   return (
@@ -499,7 +479,7 @@ export function TestingTab() {
                     />
                     {isAnalyzing && (
                       <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-1.5 text-white text-sm">
-                        FPS: {fps.toFixed(1)}
+                        FPS: {fps}
                       </div>
                     )}
                   </>
